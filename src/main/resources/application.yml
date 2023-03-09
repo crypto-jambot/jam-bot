@@ -1,0 +1,4 @@
+wallet:
+  secretKey: seed-phrase-key
+  projectId: crypto-351521
+  numberOfAccounts: 1

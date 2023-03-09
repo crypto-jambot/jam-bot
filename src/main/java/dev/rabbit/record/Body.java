@@ -1,4 +1,4 @@
-package dev.rabbit.pojo;
+package dev.rabbit.record;
 
 import java.util.Map;
 
