@@ -1,6 +1,8 @@
 package dev.rabbit.service;
 
 import dev.rabbit.exception.GetReservesFailureException;
+import dev.rabbit.pojo.Path;
+import dev.rabbit.record.Node;
 import dev.rabbit.record.Reserves;
 import dev.rabbit.record.Tree;
 import lombok.AllArgsConstructor;
@@ -37,12 +39,24 @@ public class ArbitrageService {
 
     public void analyze(List<Tree> trees) {
         Map<String, Reserves> reservesMap = getAllReserves(trees);
-        System.out.println(reservesMap);
+
+        List<Path> paths = new ArrayList<>();
+
+        trees.forEach(tree -> {
+            Path path = Path.of();
+            Node startToken = tree.node();
+            tree.traverse(((start, end, pool, ordered) -> {
+                path.addTrade(start, end, pool, ordered);
+                if (end.equals(startToken)) paths.add(Path.of(path));
+            }), () -> path.removeLast());
+        });
+
+        paths.forEach(System.out::println);
     }
 
     private List<String> getUniquePools(List<Tree> trees) {
         Set<String> uniquePools = new HashSet<>();
-        trees.forEach(tree -> tree.traverse(node -> {}, swap -> swap.exchanges().forEach(exchange -> uniquePools.add(exchange.pool()))));
+        trees.forEach(tree -> tree.traverse(swap -> swap.exchanges().forEach(exchange -> uniquePools.add(exchange.pool()))));
         return new ArrayList<>(uniquePools);
     }
 
