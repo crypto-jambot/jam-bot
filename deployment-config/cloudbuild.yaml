@@ -17,6 +17,7 @@ steps:
         "JAR_FILE=$_SERVICE_NAME.jar",
         "-t",
         "gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA",
+        "."
       ]
   - name: gcr.io/cloud-builders/docker
     id: Pushing docker image to container registry
