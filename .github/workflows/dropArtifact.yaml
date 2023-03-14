@@ -40,8 +40,8 @@ jobs:
           mvn -Pgithub versions:set -DremoveSnapshot
           artifactId=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
           version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          gsutil cp ./target/$artifactId.jar ${{ secrets.BUCKET }}/artifacts/$artifactId/$version/$artifactId.jar \
-          gsutil cp ./deployment-config/Dockerfile ${{ secrets.BUCKET }}/artifacts/$artifactId/$version/Dockerfile \
+          gsutil cp ./target/$artifactId.jar ${{ secrets.BUCKET }}/artifacts/$artifactId/$version/$artifactId.jar
+          gsutil cp ./deployment-config/Dockerfile ${{ secrets.BUCKET }}/artifacts/$artifactId/$version/
         env:
           GITHUB_USER_REF: Github Actions Bot
           GITHUB_TOKEN_REF: ${{ secrets.ACCESS_TOKEN }}
