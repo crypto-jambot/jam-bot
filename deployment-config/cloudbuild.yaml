@@ -36,6 +36,8 @@ steps:
         '$_REGION',
         '--service-account',
         '$_SERVICE_ACCOUNT',
+        '--memory=$_MEMORY',
+        '--cpu=$_CPU'
       ]
 images:
   - gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA
@@ -43,5 +45,7 @@ substitutions:
   _REGION: us-central1
   _SERVICE_ACCOUNT: jam-bot@crypto-351521.iam.gserviceaccount.com
   _SERVICE_NAME: jam-bot
+  _MEMORY: 1Gi
+  _CPU: 2000m
 options:
   substitution_option: ALLOW_LOOSE

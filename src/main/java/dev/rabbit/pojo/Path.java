@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.record.Exchange;
 import dev.rabbit.record.Node;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
 import java.math.BigDecimal;
@@ -21,6 +22,7 @@ import static dev.rabbit.utils.Constants.R1;
 import static dev.rabbit.utils.Constants.R2;
 
 @JsonPropertyOrder({"profitBeforeGas"})
+@Slf4j
 public class Path implements Comparable<Path> {
     private static final ObjectMapper mapper = new ObjectMapper();
     @Getter
@@ -155,6 +157,18 @@ public class Path implements Comparable<Path> {
     }
 
     private BigDecimal getAmountOut(BigDecimal amountIn, BigDecimal reserveIn, BigDecimal reserveOut) {
+        if (amountIn == null) {
+            log.error("Amount In is null");
+            throw new RuntimeException();
+        }
+        if (reserveIn == null) {
+            log.error("ReserveIn is null");
+            throw new RuntimeException();
+        }
+        if (reserveOut == null) {
+            log.error("ReserveOut is null");
+            throw new RuntimeException();
+        }
         BigDecimal amountInWithFee = amountIn.multiply(new BigDecimal("997"));
         BigDecimal numerator = amountInWithFee.multiply(reserveOut);
         BigDecimal denominator = reserveIn.multiply(new BigDecimal("1000")).add(amountInWithFee);
