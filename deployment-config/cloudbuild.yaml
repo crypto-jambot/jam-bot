@@ -3,11 +3,10 @@ steps:
     id: Download JAR
     entrypoint: bash
     args:
-      [
-        "-c",
-        "VERSION=$(gsutil ls gs://cloud-run-apps/artifacts/$_SERVICE_NAME | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | sort -V | tail -1)",
-        "gsutil cp gs://cloud-run-apps/artifacts/$_SERVICE_NAME/$VERSION/* ."
-      ]
+      - "-c"
+      - |
+        VERSION=$(gsutil ls gs://cloud-run-apps/artifacts/$_SERVICE_NAME | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | sort -V | tail -1)
+        gsutil cp gs://cloud-run-apps/artifacts/$_SERVICE_NAME/$VERSION/* .
   - name: gcr.io/cloud-builders/docker
     id: Dockerize Artifact
     entrypoint: docker
