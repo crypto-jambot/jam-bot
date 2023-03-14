@@ -7,6 +7,7 @@ import dev.rabbit.record.Node;
 import dev.rabbit.record.Reserves;
 import dev.rabbit.record.Tree;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.datatypes.Type;
@@ -40,6 +41,7 @@ import static org.web3j.utils.Convert.Unit;
 
 @Service
 @AllArgsConstructor
+@Slf4j
 public class ArbitrageService {
 
     private final HttpService httpService;
@@ -84,9 +86,9 @@ public class ArbitrageService {
         Unit unit = conversions.getOrDefault(startingToken.getSymbol(), null);
 
         if (unit == null) {
-            System.out.println(String.format("Gross Profit before Gas: %s WBTC unformatted.", exploitablePaths.get(0).getProfitBeforeGas()));
+            log.info(String.format("Gross Profit before Gas: %s WBTC unformatted.", exploitablePaths.get(0).getProfitBeforeGas()));
         } else {
-            System.out.println(String.format("Gross Profit before Gas: %s %s", fromWei(exploitablePaths.get(0).getProfitBeforeGas(), unit).setScale(5, RoundingMode.HALF_DOWN), startingToken.getSymbol()));
+            log.info(String.format("Gross Profit before Gas: %s %s", fromWei(exploitablePaths.get(0).getProfitBeforeGas(), unit).setScale(5, RoundingMode.HALF_DOWN), startingToken.getSymbol()));
         }
     }
 
