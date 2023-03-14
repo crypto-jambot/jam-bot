@@ -66,6 +66,8 @@ public class ArbitrageService {
         // Filter out paths that are not exploitable.
         List<Path> exploitablePaths = paths.stream().filter(Path::isValueExtractable).collect(Collectors.toList());
 
+        if (exploitablePaths.isEmpty()) return;
+
         // Calculate the virtual liquidity, optimal trading volume, and revenue for each remaining path.
         exploitablePaths.forEach(path -> {
             path.calculateEquivalentLiquidity();
