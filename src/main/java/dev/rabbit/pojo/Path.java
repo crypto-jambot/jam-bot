@@ -157,18 +157,20 @@ public class Path implements Comparable<Path> {
     }
 
     private BigDecimal getAmountOut(BigDecimal amountIn, BigDecimal reserveIn, BigDecimal reserveOut) {
+        boolean throwThatBitch = false;
         if (amountIn == null || !(amountIn.compareTo(BigDecimal.ZERO) > 0)) {
-            log.error("Amount In is null or zero");
-            throw new RuntimeException();
+            log.error("Amount In is null or zero: " + amountIn);
+            throwThatBitch = true;
         }
         if (reserveIn == null || !(reserveIn.compareTo(BigDecimal.ZERO) > 0)) {
-            log.error("ReserveIn is null or zero");
-            throw new RuntimeException();
+            log.error("ReserveIn is null or zero: " + reserveIn);
+            throwThatBitch = true;
         }
         if (reserveOut == null || !(reserveOut.compareTo(BigDecimal.ZERO) > 0)) {
-            log.error("ReserveOut is null or zero");
-            throw new RuntimeException();
+            log.error("ReserveOut is null or zero: " + reserveOut);
+            throwThatBitch = true;
         }
+        if (throwThatBitch) throw new RuntimeException();
         BigDecimal amountInWithFee = amountIn.multiply(new BigDecimal("997"));
         BigDecimal numerator = amountInWithFee.multiply(reserveOut);
         BigDecimal denominator = reserveIn.multiply(new BigDecimal("1000")).add(amountInWithFee);
