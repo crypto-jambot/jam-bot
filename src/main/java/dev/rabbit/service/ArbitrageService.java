@@ -1,6 +1,7 @@
 package dev.rabbit.service;
 
 import dev.rabbit.exception.GetReservesFailureException;
+import dev.rabbit.exception.ZeroReservesException;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.pojo.Token;
 import dev.rabbit.record.Node;
@@ -71,11 +72,15 @@ public class ArbitrageService {
         if (exploitablePaths.isEmpty()) return;
 
         // Calculate the virtual liquidity, optimal trading volume, and revenue for each remaining path.
-        exploitablePaths.forEach(path -> {
-            path.calculateEquivalentLiquidity();
-            path.calculateOptimalTradingVolume();
-            path.calculateRevenue();
-        });
+        try {
+            exploitablePaths.forEach(path -> {
+                path.calculateEquivalentLiquidity();
+                path.calculateOptimalTradingVolume();
+                path.calculateRevenue();
+            });
+        } catch (ZeroReservesException exception) {
+            return;
+        }
 
         // Filter out paths that do not pass simulation via a smart contract
 

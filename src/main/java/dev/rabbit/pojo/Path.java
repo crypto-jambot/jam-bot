@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rabbit.exception.ZeroReservesException;
 import dev.rabbit.record.Exchange;
 import dev.rabbit.record.Node;
 import lombok.Getter;
@@ -170,7 +171,7 @@ public class Path implements Comparable<Path> {
             log.error("ReserveOut is null or zero: " + reserveOut);
             throwThatBitch = true;
         }
-        if (throwThatBitch) throw new RuntimeException();
+        if (throwThatBitch) throw new ZeroReservesException();
         BigDecimal amountInWithFee = amountIn.multiply(new BigDecimal("997"));
         BigDecimal numerator = amountInWithFee.multiply(reserveOut);
         BigDecimal denominator = reserveIn.multiply(new BigDecimal("1000")).add(amountInWithFee);
