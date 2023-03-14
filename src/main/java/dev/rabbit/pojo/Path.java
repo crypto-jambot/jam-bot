@@ -157,16 +157,16 @@ public class Path implements Comparable<Path> {
     }
 
     private BigDecimal getAmountOut(BigDecimal amountIn, BigDecimal reserveIn, BigDecimal reserveOut) {
-        if (amountIn == null) {
-            log.error("Amount In is null");
+        if (amountIn == null || !(amountIn.compareTo(BigDecimal.ZERO) > 0)) {
+            log.error("Amount In is null or zero");
             throw new RuntimeException();
         }
-        if (reserveIn == null) {
-            log.error("ReserveIn is null");
+        if (reserveIn == null || !(reserveIn.compareTo(BigDecimal.ZERO) > 0)) {
+            log.error("ReserveIn is null or zero");
             throw new RuntimeException();
         }
-        if (reserveOut == null) {
-            log.error("ReserveOut is null");
+        if (reserveOut == null || !(reserveOut.compareTo(BigDecimal.ZERO) > 0)) {
+            log.error("ReserveOut is null or zero");
             throw new RuntimeException();
         }
         BigDecimal amountInWithFee = amountIn.multiply(new BigDecimal("997"));
