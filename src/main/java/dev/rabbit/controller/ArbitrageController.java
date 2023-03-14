@@ -30,11 +30,11 @@ public class ArbitrageController {
     private final ArbitrageService arbitrageService;
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<List<Tree>> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
+    public ResponseEntity<String> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
         verifyMessageFormat(body);
         List<Tree> trees = parseBody(body);
         arbitrageService.analyze(trees);
-        return new ResponseEntity<>(trees, HttpStatus.OK);
+        return ResponseEntity.ok().build();
     }
 
     private void verifyMessageFormat(Body body) {

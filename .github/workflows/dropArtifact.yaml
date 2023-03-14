@@ -1,0 +1,58 @@
+# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Java CI with Maven
+
+on:
+  push:
+    branches: [ "feature/jam-bot" ]
+
+jobs:
+  build:
+    if: "!contains(github.event.commits[0].author.name, 'GitHub Actions Bot')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'adopt'
+          server-id: github
+          server-username: GITHUB_USER_REF  # env variable name for username
+          server-password: GITHUB_TOKEN_REF # env variable name for GitHub Personal Access Token
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+      - name: Install
+        run: mvn -Pgithub clean install
+        env:
+          GITHUB_USER_REF: Github Actions Bot
+          GITHUB_TOKEN_REF: ${{ secrets.ACCESS_TOKEN }}
+      - name: Deploy
+        run: |
+          mvn -Pgithub versions:set -DremoveSnapshot
+          artifactId=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
+          version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          gsutil cp ./target/$artifactId.jar ${{ secrets.BUCKET }}/artifacts/$artifactId/$version/$artifactId.jar \
+          gsutil cp ./deployment-config/Dockerfile ${{ secrets.BUCKET }}/artifacts/$artifactId/$version/Dockerfile \
+        env:
+          GITHUB_USER_REF: Github Actions Bot
+          GITHUB_TOKEN_REF: ${{ secrets.ACCESS_TOKEN }}
+#      - name: Setup git config
+#        run: |
+#          git config user.name "GitHub Actions Bot"
+#          git config user.email "actions@github.com"
+#      - name: Release
+#        run: |
+#          mvn versions:set -DnewVersion='${project.version}-SNAPSHOT'
+#          mvn release:clean release:prepare -DskipTests -s settings.xml
+#        env:
+#          GITHUB_USERNAME: GitHub Actions Bot
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
