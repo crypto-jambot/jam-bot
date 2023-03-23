@@ -13,7 +13,6 @@ public class Pool {
     private final String exchangeName;
     private final int fee;
     private final String address;
-    @JsonProperty
     private Reserves reserves;
     private Pool(String exchangeName, int fee, String address) {
         this.exchangeName = exchangeName;
@@ -29,5 +28,10 @@ public class Pool {
 
     public void addReserves(Map<String, Reserves> reservesMap) {
         this.reserves = reservesMap.get(this.address);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("ExchangeName: %s Fee: %s Address: %s", exchangeName, fee, address);
     }
 }

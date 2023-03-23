@@ -1,44 +1,49 @@
 package dev.rabbit.pojo;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.rabbit.exception.ZeroReservesException;
+import dev.rabbit.exception.GasEstimationFailureException;
+import dev.rabbit.exception.ZeroAmountOutException;
 import dev.rabbit.record.Exchange;
 import dev.rabbit.record.Node;
+import dev.rabbit.utils.ValueConverter;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
+import org.springframework.util.ObjectUtils;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.methods.request.Transaction;
+import org.web3j.protocol.core.methods.response.EthEstimateGas;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.LinkedList;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
+import static dev.rabbit.utils.Constants.JAM_BOT_ADDRESS;
+import static dev.rabbit.utils.Constants.NULL_ADDRESS;
 import static dev.rabbit.utils.Constants.R1;
 import static dev.rabbit.utils.Constants.R2;
+import static dev.rabbit.utils.Constants.getJamExecuteTradeFn;
 
-@JsonPropertyOrder({"profitBeforeGas"})
 @Slf4j
+@Getter
 public class Path implements Comparable<Path> {
     private static final ObjectMapper mapper = new ObjectMapper();
-    @Getter
-    @JsonProperty
     private final LinkedList<Trade> trades = new LinkedList<>();
 
-    @JsonProperty
     private BigDecimal virtualInputReserve;
-    @JsonProperty
     private BigDecimal virtualOutputReserve;
-    @JsonProperty
     private BigDecimal optimalTradingVolume;
-    @JsonProperty
-    @Getter
-    private BigDecimal profitBeforeGas;
+    private BigInteger profitBeforeGas;
+    private BigDecimal profitBeforeGasInEther;
+    private BigInteger gasUsed;
+    private BigInteger netProfit;
     public static Path of() {
         return new Path();
     }
@@ -69,7 +74,7 @@ public class Path implements Comparable<Path> {
         this.trades.removeLast();
     }
 
-    @JsonIgnore
+    // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
     public boolean isValueExtractable() {
         BigInteger leftOperandNumerator = BigInteger.ONE;
         BigInteger leftOperandDenominator = BigInteger.ONE;
@@ -101,6 +106,7 @@ public class Path implements Comparable<Path> {
         return leftOperand.compareTo(rightOperand) > 0;
     }
 
+    // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
     public void calculateEquivalentLiquidity() {
         BigInteger[] orderedReserves = this.trades.get(0).getOrderedReserves();
         BigDecimal inputReserve = new BigDecimal(orderedReserves[0]);
@@ -123,6 +129,7 @@ public class Path implements Comparable<Path> {
         this.virtualOutputReserve = outputReserve;
     }
 
+    // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
     public void calculateOptimalTradingVolume() {
         BigDecimal[] lastSwapOrderedReserves = getLastSwapOrderedReserves();
         BigDecimal lastSwapInputReserve = lastSwapOrderedReserves[0];
@@ -142,40 +149,41 @@ public class Path implements Comparable<Path> {
 
         BigDecimal a = calculateA.get();
         BigDecimal aPrime = calculateAPrime.get();
-
         BigDecimal numerator = R1.multiply(R2).multiply(aPrime).multiply(a).sqrt(MathContext.DECIMAL128).subtract(a);
-
         this.optimalTradingVolume = numerator.divide(R1, MathContext.DECIMAL128);
     }
 
-    public void calculateRevenue() {
-        BigDecimal tradeNAmountOut = getAmountOut(this.optimalTradingVolume, virtualInputReserve, virtualOutputReserve);
-        BigDecimal[] lastSwapOrderedReserves = getLastSwapOrderedReserves();
-        BigDecimal lastSwapInputReserve = lastSwapOrderedReserves[0];
-        BigDecimal lastSwapOutputReserve = lastSwapOrderedReserves[1];
-        BigDecimal revenue = getAmountOut(tradeNAmountOut, lastSwapInputReserve, lastSwapOutputReserve);
-        this.profitBeforeGas = revenue.subtract(optimalTradingVolume);
+    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException {
+        BigInteger[] amounts = new BigInteger[this.trades.size() + 1];
+        amounts[0] = this.optimalTradingVolume.toBigInteger();
+        for (int i = 0; i < trades.size(); i++) {
+            BigInteger[] orderedReserves = trades.get(i).getOrderedReserves();
+            amounts[i + 1] = getAmountOut(amounts[i], orderedReserves[0], orderedReserves[1]);
+        }
+        this.profitBeforeGas = amounts[this.trades.size()].subtract(amounts[0]);
+        this.profitBeforeGasInEther = valueConverter.deriveEtherValue(valueConverter.makeRequest(this.trades.get(0).getStart()), this.profitBeforeGas);
     }
 
-    private BigDecimal getAmountOut(BigDecimal amountIn, BigDecimal reserveIn, BigDecimal reserveOut) {
-        boolean throwThatBitch = false;
-        if (amountIn == null || !(amountIn.compareTo(BigDecimal.ZERO) > 0)) {
-            log.error("Amount In is null or zero: " + amountIn);
-            throwThatBitch = true;
+    public void simulate(Web3j web3j, BigInteger gasPrice) throws IOException, GasEstimationFailureException {
+        Function JAM_EXECUTE_TRADE_FN = getJamExecuteTradeFn(
+                this.trades.stream().map(trade -> trade.getStart().getAddress()).collect(Collectors.toList()),
+                this.trades.stream().map(trade -> trade.getPool().getAddress()).collect(Collectors.toList()),
+                new BigInteger(String.valueOf(this.optimalTradingVolume.setScale(0, RoundingMode.HALF_DOWN))));
+        Transaction transaction = Transaction.createEthCallTransaction(NULL_ADDRESS, JAM_BOT_ADDRESS, FunctionEncoder.encode(JAM_EXECUTE_TRADE_FN));
+        EthEstimateGas response = web3j.ethEstimateGas(transaction).send();
+        if (!ObjectUtils.isEmpty(response.getError())) {
+            throw GasEstimationFailureException.of();
         }
-        if (reserveIn == null || !(reserveIn.compareTo(BigDecimal.ZERO) > 0)) {
-            log.error("ReserveIn is null or zero: " + reserveIn);
-            throwThatBitch = true;
-        }
-        if (reserveOut == null || !(reserveOut.compareTo(BigDecimal.ZERO) > 0)) {
-            log.error("ReserveOut is null or zero: " + reserveOut);
-            throwThatBitch = true;
-        }
-        if (throwThatBitch) throw new ZeroReservesException();
-        BigDecimal amountInWithFee = amountIn.multiply(new BigDecimal("997"));
-        BigDecimal numerator = amountInWithFee.multiply(reserveOut);
-        BigDecimal denominator = reserveIn.multiply(new BigDecimal("1000")).add(amountInWithFee);
-        return numerator.divide(denominator, MathContext.DECIMAL128);
+        this.gasUsed = response.getAmountUsed();
+        this.netProfit = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(gasPrice));
+    }
+
+    private BigInteger getAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
+        checkInputs(amountIn, reserveIn, reserveOut);
+        BigInteger amountInWithFee = amountIn.multiply(new BigInteger("997"));
+        BigInteger numerator = amountInWithFee.multiply(reserveOut);
+        BigInteger denominator = reserveIn.multiply(new BigInteger("1000")).add(amountInWithFee);
+        return numerator.divide(denominator);
     }
 
     private BigDecimal[] getLastSwapOrderedReserves() {
@@ -187,17 +195,19 @@ public class Path implements Comparable<Path> {
         return new BigDecimal[]{lastSwapInputReserve, lastSwapOutputReserve};
     }
 
-    @Override
-    public String toString() {
-        try {
-            return mapper.writeValueAsString(this);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+    private void checkInputs(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
+        if (ObjectUtils.isEmpty(amountIn) ||
+            ObjectUtils.isEmpty(reserveIn) ||
+            ObjectUtils.isEmpty(reserveOut) ||
+            amountIn.compareTo(BigInteger.ZERO) <= 0 ||
+            reserveIn.compareTo(BigInteger.ZERO) <= 0 ||
+            reserveOut.compareTo(BigInteger.ZERO) <= 0) {
+            throw new ZeroAmountOutException();
         }
     }
 
     @Override
     public int compareTo(@NotNull Path o) {
-        return this.profitBeforeGas.compareTo(o.profitBeforeGas);
+        return (!ObjectUtils.isEmpty(this.netProfit) && !ObjectUtils.isEmpty(o.netProfit)) ? this.netProfit.compareTo(o.netProfit) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
 }

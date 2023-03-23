@@ -19,11 +19,15 @@ public class Web3Configuration {
     @Bean
     public HttpService httpService() {
         String NODE_ENDPOINT = "https://rabbit.dev/http";
-        OkHttpClient client = new OkHttpClient.Builder()
+        return new HttpService(NODE_ENDPOINT, okHttpClient());
+    }
+
+    @Bean
+    public OkHttpClient okHttpClient() {
+        return new OkHttpClient.Builder()
                 .connectTimeout(10, TimeUnit.MINUTES)
                 .writeTimeout(10, TimeUnit.MINUTES)
                 .readTimeout(10, TimeUnit.MINUTES)
                 .build();
-        return new HttpService(NODE_ENDPOINT, client);
     }
 }

@@ -2,9 +2,11 @@ package dev.rabbit.pojo;
 
 import dev.rabbit.record.Node;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 @Getter
+@EqualsAndHashCode
 @AllArgsConstructor
 public class Token {
 

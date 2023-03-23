@@ -1,12 +1,13 @@
 package dev.rabbit.service;
 
+import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.GetReservesFailureException;
-import dev.rabbit.exception.ZeroReservesException;
+import dev.rabbit.exception.ZeroAmountOutException;
 import dev.rabbit.pojo.Path;
-import dev.rabbit.pojo.Token;
 import dev.rabbit.record.Node;
 import dev.rabbit.record.Reserves;
 import dev.rabbit.record.Tree;
+import dev.rabbit.utils.ValueConverter;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,7 +20,6 @@ import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.http.HttpService;
-import org.web3j.utils.Convert;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -31,12 +31,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static dev.rabbit.utils.Constants.NULL_ADDRESS;
 import static dev.rabbit.utils.Constants.V2_GET_RESERVES_ENCODED_FN;
 import static dev.rabbit.utils.Constants.V2_GET_RESERVES_FN;
-import static dev.rabbit.utils.Constants.conversions;
 import static org.web3j.utils.Convert.fromWei;
 import static org.web3j.utils.Convert.Unit;
 
@@ -47,8 +45,9 @@ public class ArbitrageService {
 
     private final HttpService httpService;
     private final Web3j web3j;
+    private final ValueConverter valueConverter;
 
-    public void analyze(List<Tree> trees) {
+    public void analyze(List<Tree> trees) throws IOException {
         // Traverse the list of trees to build a total list of paths.
         final List<Path> paths = new ArrayList<>();
         trees.forEach(tree -> {
@@ -67,34 +66,38 @@ public class ArbitrageService {
         paths.forEach(path -> path.getTrades().forEach(trade -> trade.getPool().addReserves(reservesMap)));
 
         // Filter out paths that are not exploitable.
-        List<Path> exploitablePaths = paths.stream().filter(Path::isValueExtractable).collect(Collectors.toList());
+        List<Path> pathsWithValueExtractable = paths.stream().filter(Path::isValueExtractable).toList();
+        if (pathsWithValueExtractable.isEmpty()) return;
 
-        if (exploitablePaths.isEmpty()) return;
-
-        // Calculate the virtual liquidity, optimal trading volume, and revenue for each remaining path.
-        try {
-            exploitablePaths.forEach(path -> {
+        // Run Math to calculate revenue and sort in descending order
+        List<Path> exploitablePaths = pathsWithValueExtractable.stream().filter(path -> {
+            try {
                 path.calculateEquivalentLiquidity();
                 path.calculateOptimalTradingVolume();
-                path.calculateRevenue();
-            });
-        } catch (ZeroReservesException exception) {
-            return;
+                path.calculateRevenue(valueConverter);
+                return true;
+            } catch (ZeroAmountOutException | IOException exception) {
+                return false;
+            }
+        }).sorted(Collections.reverseOrder()).toList();
+
+        int count = 0;
+        List<Path> profitablePaths = new ArrayList<>();
+        BigInteger gasPrice = web3j.ethGasPrice().send().getGasPrice();
+        for (Path path : exploitablePaths) {
+            if (count >= 5) break;
+            try {
+                path.simulate(web3j, gasPrice);
+                count++;
+                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
+                profitablePaths.add(path);
+            } catch (GasEstimationFailureException exception) {
+                // Ignore exception
+            }
         }
-
-        // Filter out paths that do not pass simulation via a smart contract
-
-        // Sort by profit descending
-        exploitablePaths.sort(Collections.reverseOrder());
-
-        Token startingToken = exploitablePaths.get(0).getTrades().get(0).getStart();
-        Unit unit = conversions.getOrDefault(startingToken.getSymbol(), null);
-
-        if (unit == null) {
-            log.info(String.format("Gross Profit before Gas: %s WBTC unformatted.", exploitablePaths.get(0).getProfitBeforeGas()));
-        } else {
-            log.info(String.format("Gross Profit before Gas: %s %s", fromWei(exploitablePaths.get(0).getProfitBeforeGas(), unit).setScale(5, RoundingMode.HALF_DOWN), startingToken.getSymbol()));
-        }
+        if (profitablePaths.isEmpty()) return;
+        profitablePaths.sort(Collections.reverseOrder());
+        log.info(String.format("Found a path! Profit in ETH: %s Native token: %s", fromWei(profitablePaths.get(0).getNetProfit().toString(), Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN), profitablePaths.get(0).getTrades().get(0).getStart().getSymbol()));
     }
 
     private List<String> getUniquePools(List<Tree> trees) {

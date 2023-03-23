@@ -2,3 +2,6 @@ wallet:
   secretKey: seed-phrase-key
   projectId: crypto-351521
   numberOfAccounts: 1
+spring:
+  cache:
+    cache-names: "token"

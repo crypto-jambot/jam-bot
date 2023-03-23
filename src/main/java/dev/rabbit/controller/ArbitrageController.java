@@ -10,13 +10,13 @@ import dev.rabbit.record.Tree;
 import dev.rabbit.service.ArbitrageService;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.util.Base64;
 import java.util.List;
 
@@ -30,11 +30,11 @@ public class ArbitrageController {
     private final ArbitrageService arbitrageService;
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<String> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
+    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws IOException {
         verifyMessageFormat(body);
         List<Tree> trees = parseBody(body);
         arbitrageService.analyze(trees);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.accepted().build();
     }
 
     private void verifyMessageFormat(Body body) {
