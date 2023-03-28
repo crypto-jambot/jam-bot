@@ -22,14 +22,12 @@ import java.util.List;
 @Component
 public class Wallet {
     private final String seedPhrase;
-    private final Web3j web3j;
     @Getter(AccessLevel.PRIVATE)
     private final List<Account> accounts = new ArrayList<>();
 
     @Autowired
     private Wallet(WalletConfiguration walletConfiguration, Web3j web3j) {
         this.seedPhrase = walletConfiguration.getSeedPhrase();
-        this.web3j = web3j;
 
         // Generate a BIP32 master keypair from the mnemonic phrase
         Bip32ECKeyPair masterKeypair = Bip32ECKeyPair.generateKeyPair(MnemonicUtils.generateSeed(seedPhrase, null));

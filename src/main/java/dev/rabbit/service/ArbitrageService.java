@@ -3,6 +3,7 @@ package dev.rabbit.service;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.GetReservesFailureException;
 import dev.rabbit.exception.ZeroAmountOutException;
+import dev.rabbit.gateway.PubSubOutboundGateway;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.record.Node;
 import dev.rabbit.record.Reserves;
@@ -46,6 +47,7 @@ public class ArbitrageService {
     private final HttpService httpService;
     private final Web3j web3j;
     private final ValueConverter valueConverter;
+    private final PubSubOutboundGateway pubSubOutboundGateway;
 
     public void analyze(List<Tree> trees) throws IOException {
         // Traverse the list of trees to build a total list of paths.
@@ -75,6 +77,7 @@ public class ArbitrageService {
                 path.calculateEquivalentLiquidity();
                 path.calculateOptimalTradingVolume();
                 path.calculateRevenue(valueConverter);
+                path.encodeCallData();
                 return true;
             } catch (ZeroAmountOutException | IOException exception) {
                 return false;
@@ -83,11 +86,14 @@ public class ArbitrageService {
 
         int count = 0;
         List<Path> profitablePaths = new ArrayList<>();
-        BigInteger gasPrice = web3j.ethGasPrice().send().getGasPrice();
+        BigInteger baseFeePerGas = web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock().getBaseFeePerGas();
+        BigInteger maxPriorityFeePerGas = web3j.ethMaxPriorityFeePerGas().send().getMaxPriorityFeePerGas().add(BigInteger.ONE);
         for (Path path : exploitablePaths) {
+            path.setBaseFeePerGas(baseFeePerGas);
+            path.setMaxPriorityFeePerGas(maxPriorityFeePerGas);
             if (count >= 5) break;
             try {
-                path.simulate(web3j, gasPrice);
+                path.simulate(web3j);
                 count++;
                 if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
                 profitablePaths.add(path);
@@ -95,9 +101,12 @@ public class ArbitrageService {
                 // Ignore exception
             }
         }
-        if (profitablePaths.isEmpty()) return;
         profitablePaths.sort(Collections.reverseOrder());
         log.info(String.format("Found a path! Profit in ETH: %s Native token: %s", fromWei(profitablePaths.get(0).getNetProfit().toString(), Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN), profitablePaths.get(0).getTrades().get(0).getStart().getSymbol()));
+
+//        //Publish message
+//        Message<String> message = MessageBuilder.createMessage(profitablePaths.get(0).prepareForFlashbots(), new MessageHeaders(Map.of("This", "Header boyyyy")));
+//        pubSubOutboundGateway.sendToPubsub(message);
     }
 
     private List<String> getUniquePools(List<Tree> trees) {

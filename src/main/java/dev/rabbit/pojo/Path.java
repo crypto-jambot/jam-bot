@@ -7,29 +7,39 @@ import dev.rabbit.record.Exchange;
 import dev.rabbit.record.Node;
 import dev.rabbit.utils.ValueConverter;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.util.ObjectUtils;
+import org.web3j.abi.DefaultFunctionEncoder;
 import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.DynamicArray;
+import org.web3j.abi.datatypes.DynamicBytes;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.EthEstimateGas;
+import org.web3j.utils.Numeric;
 
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.util.Arrays;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
+import static dev.rabbit.utils.Constants.DEPLOYER_ADDRESS;
 import static dev.rabbit.utils.Constants.JAM_BOT_ADDRESS;
-import static dev.rabbit.utils.Constants.NULL_ADDRESS;
 import static dev.rabbit.utils.Constants.R1;
 import static dev.rabbit.utils.Constants.R2;
+import static dev.rabbit.utils.Constants.getERC20TransferFn;
 import static dev.rabbit.utils.Constants.getJamExecuteTradeFn;
+import static dev.rabbit.utils.Constants.getV2SwapFn;
+import static org.web3j.utils.Convert.fromWei;
 
 @Slf4j
 @Getter
@@ -40,8 +50,14 @@ public class Path implements Comparable<Path> {
     private BigDecimal virtualInputReserve;
     private BigDecimal virtualOutputReserve;
     private BigDecimal optimalTradingVolume;
+    private BigInteger[] tradeAmounts;
     private BigInteger profitBeforeGas;
     private BigDecimal profitBeforeGasInEther;
+    private byte[] callData;
+    @Setter
+    private BigInteger baseFeePerGas;
+    @Setter
+    private BigInteger maxPriorityFeePerGas;
     private BigInteger gasUsed;
     private BigInteger netProfit;
     public static Path of() {
@@ -154,28 +170,64 @@ public class Path implements Comparable<Path> {
     }
 
     public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException {
-        BigInteger[] amounts = new BigInteger[this.trades.size() + 1];
-        amounts[0] = this.optimalTradingVolume.toBigInteger();
+        tradeAmounts = new BigInteger[this.trades.size() + 1];
+        tradeAmounts[0] = this.optimalTradingVolume.toBigInteger();
         for (int i = 0; i < trades.size(); i++) {
             BigInteger[] orderedReserves = trades.get(i).getOrderedReserves();
-            amounts[i + 1] = getAmountOut(amounts[i], orderedReserves[0], orderedReserves[1]);
+            tradeAmounts[i + 1] = getAmountOut(tradeAmounts[i], orderedReserves[0], orderedReserves[1]);
         }
-        this.profitBeforeGas = amounts[this.trades.size()].subtract(amounts[0]);
+        this.profitBeforeGas = tradeAmounts[this.trades.size()].subtract(tradeAmounts[0]);
         this.profitBeforeGasInEther = valueConverter.deriveEtherValue(valueConverter.makeRequest(this.trades.get(0).getStart()), this.profitBeforeGas);
     }
 
-    public void simulate(Web3j web3j, BigInteger gasPrice) throws IOException, GasEstimationFailureException {
+    public void encodeCallData() {
+        DefaultFunctionEncoder encoder = new DefaultFunctionEncoder();
+
+        Address[] targetArray = new Address[this.trades.size()];
+        DynamicBytes[] payloadArray = new DynamicBytes[this.trades.size()];
+
+        // Encode the first ERC20 Transfer
+        targetArray[0] = new Address(this.trades.get(0).getStart().getAddress());
+        payloadArray[0] = new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(getERC20TransferFn(this.trades.get(0).getPool().getAddress(), this.tradeAmounts[0]))));
+
+        // Encode all the swap calls except the last one
+        for (int i = 1; i < this.trades.size(); i++) {
+            targetArray[i] = new Address(this.trades.get(i - 1).getPool().getAddress());
+            Function v2SwapFn = this.trades.get(i - 1).isOrdered()
+                    ? getV2SwapFn(BigInteger.ZERO, this.tradeAmounts[i], this.trades.get(i).getPool().getAddress(), new byte[0])
+                    : getV2SwapFn(this.tradeAmounts[i], BigInteger.ZERO, this.trades.get(i).getPool().getAddress(), new byte[0]);
+            payloadArray[i] = new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(v2SwapFn)));
+        }
+
+        // Convert arrays to DynamicArray Web3J type
+        DynamicArray<Address> targets = new DynamicArray<>(Address.class, Arrays.asList(targetArray));
+        DynamicArray<DynamicBytes> payloads = new DynamicArray<>(DynamicBytes.class, Arrays.asList(payloadArray));
+
+        String callDataString = encoder.encodeParameters(List.of(targets, payloads));
+        byte[] callData = Numeric.hexStringToByteArray(callDataString);
+
+        // Encode the last swap call with calldata
+        Trade lastTrade = this.trades.getLast();
+        Function v2SwapFnWithCallData = lastTrade.isOrdered()
+                ? getV2SwapFn(BigInteger.ZERO, this.tradeAmounts[this.tradeAmounts.length - 1], JAM_BOT_ADDRESS, callData)
+                : getV2SwapFn(this.tradeAmounts[this.tradeAmounts.length - 1], BigInteger.ZERO, JAM_BOT_ADDRESS, callData);
+
+        String payloadString = encoder.encodeFunction(v2SwapFnWithCallData);
+        this.callData = Numeric.hexStringToByteArray(payloadString);
+    }
+
+    public void simulate(Web3j web3j) throws IOException, GasEstimationFailureException {
         Function JAM_EXECUTE_TRADE_FN = getJamExecuteTradeFn(
-                this.trades.stream().map(trade -> trade.getStart().getAddress()).collect(Collectors.toList()),
-                this.trades.stream().map(trade -> trade.getPool().getAddress()).collect(Collectors.toList()),
-                new BigInteger(String.valueOf(this.optimalTradingVolume.setScale(0, RoundingMode.HALF_DOWN))));
-        Transaction transaction = Transaction.createEthCallTransaction(NULL_ADDRESS, JAM_BOT_ADDRESS, FunctionEncoder.encode(JAM_EXECUTE_TRADE_FN));
+                this.trades.get(0).getStart().getAddress(),
+                this.trades.get(this.trades.size() - 1).getPool().getAddress(),
+                this.callData);
+        Transaction transaction = Transaction.createEthCallTransaction(DEPLOYER_ADDRESS, JAM_BOT_ADDRESS, FunctionEncoder.encode(JAM_EXECUTE_TRADE_FN));
         EthEstimateGas response = web3j.ethEstimateGas(transaction).send();
         if (!ObjectUtils.isEmpty(response.getError())) {
             throw GasEstimationFailureException.of();
         }
         this.gasUsed = response.getAmountUsed();
-        this.netProfit = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(gasPrice));
+        this.netProfit = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(this.maxPriorityFeePerGas)));
     }
 
     private BigInteger getAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
