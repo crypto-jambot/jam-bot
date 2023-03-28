@@ -101,6 +101,8 @@ public class ArbitrageService {
                 // Ignore exception
             }
         }
+        if (profitablePaths.isEmpty()) return;
+
         profitablePaths.sort(Collections.reverseOrder());
         log.info(String.format("Found a path! Profit in ETH: %s Native token: %s", fromWei(profitablePaths.get(0).getNetProfit().toString(), Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN), profitablePaths.get(0).getTrades().get(0).getStart().getSymbol()));
 
