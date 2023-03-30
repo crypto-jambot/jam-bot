@@ -11,9 +11,13 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "wallet")
 public class WalletConfiguration {
-    private static final SecretManagerUtils secretManagerUtils = SecretManagerUtils.of();
+    private static final SecretManagerUtils seedPhraseSecretManagerUtils = SecretManagerUtils.of();
+    private static final SecretManagerUtils privateKeySecretManagerUtils = SecretManagerUtils.of();
     @Getter(AccessLevel.NONE)
-    private String secretKey;
+    private String seedPhraseKey;
+
+    @Getter(AccessLevel.NONE)
+    private String flashBotKey;
 
     @Getter(AccessLevel.NONE)
     private String projectId;
@@ -21,6 +25,10 @@ public class WalletConfiguration {
     private Integer numberOfAccounts;
 
     public String getSeedPhrase() {
-        return secretManagerUtils.accessSecretVersionString(projectId, secretKey);
+        return seedPhraseSecretManagerUtils.accessSecretVersionString(projectId, seedPhraseKey);
+    }
+
+    public String getPrivateKey() {
+        return privateKeySecretManagerUtils.accessSecretVersionString(projectId, flashBotKey);
     }
 }

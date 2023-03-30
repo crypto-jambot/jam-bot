@@ -9,8 +9,12 @@ import dev.rabbit.record.Node;
 import dev.rabbit.record.Reserves;
 import dev.rabbit.record.Tree;
 import dev.rabbit.utils.ValueConverter;
+import dev.rabbit.utils.Wallet;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageHeaders;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.datatypes.Type;
@@ -34,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static dev.rabbit.utils.Constants.NULL_ADDRESS;
+import static dev.rabbit.utils.Constants.ONE_GWEI;
 import static dev.rabbit.utils.Constants.V2_GET_RESERVES_ENCODED_FN;
 import static dev.rabbit.utils.Constants.V2_GET_RESERVES_FN;
 import static org.web3j.utils.Convert.fromWei;
@@ -48,8 +53,9 @@ public class ArbitrageService {
     private final Web3j web3j;
     private final ValueConverter valueConverter;
     private final PubSubOutboundGateway pubSubOutboundGateway;
+    private final Wallet wallet;
 
-    public void analyze(List<Tree> trees) throws IOException {
+    public List<Path> analyze(List<Tree> trees) throws IOException {
         // Traverse the list of trees to build a total list of paths.
         final List<Path> paths = new ArrayList<>();
         trees.forEach(tree -> {
@@ -69,7 +75,7 @@ public class ArbitrageService {
 
         // Filter out paths that are not exploitable.
         List<Path> pathsWithValueExtractable = paths.stream().filter(Path::isValueExtractable).toList();
-        if (pathsWithValueExtractable.isEmpty()) return;
+        if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
 
         // Run Math to calculate revenue and sort in descending order
         List<Path> exploitablePaths = pathsWithValueExtractable.stream().filter(path -> {
@@ -87,28 +93,36 @@ public class ArbitrageService {
         int count = 0;
         List<Path> profitablePaths = new ArrayList<>();
         BigInteger baseFeePerGas = web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock().getBaseFeePerGas();
-        BigInteger maxPriorityFeePerGas = web3j.ethMaxPriorityFeePerGas().send().getMaxPriorityFeePerGas().add(BigInteger.ONE);
+        BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas, 2);
+        BigInteger maxPriorityFeePerGas = web3j.ethMaxPriorityFeePerGas().send().getMaxPriorityFeePerGas().add(ONE_GWEI);
         for (Path path : exploitablePaths) {
             path.setBaseFeePerGas(baseFeePerGas);
+            path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
             path.setMaxPriorityFeePerGas(maxPriorityFeePerGas);
-            if (count >= 5) break;
+            if (count >= 1) break;
             try {
                 path.simulate(web3j);
                 count++;
-                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
+//                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
                 profitablePaths.add(path);
             } catch (GasEstimationFailureException exception) {
                 // Ignore exception
             }
         }
-        if (profitablePaths.isEmpty()) return;
+        if (profitablePaths.isEmpty()) return Collections.emptyList();
+
+        for (Path path : profitablePaths) {
+            path.buildSignedTransaction(web3j, wallet);
+        }
 
         profitablePaths.sort(Collections.reverseOrder());
         log.info(String.format("Found a path! Profit in ETH: %s Native token: %s", fromWei(profitablePaths.get(0).getNetProfit().toString(), Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN), profitablePaths.get(0).getTrades().get(0).getStart().getSymbol()));
 
-//        //Publish message
+        //Publish message
 //        Message<String> message = MessageBuilder.createMessage(profitablePaths.get(0).prepareForFlashbots(), new MessageHeaders(Map.of("This", "Header boyyyy")));
 //        pubSubOutboundGateway.sendToPubsub(message);
+
+        return profitablePaths;
     }
 
     private List<String> getUniquePools(List<Tree> trees) {
@@ -138,5 +152,13 @@ public class ArbitrageService {
         } catch (IOException exception) {
             throw GetReservesFailureException.of(exception);
         }
+    }
+
+    private static BigInteger getMaxBaseFeeInFutureBlock(BigInteger baseFee, int blocksInFuture) {
+        BigInteger maxBaseFee = new BigInteger(baseFee.toString());
+        for (int i = 0; i < blocksInFuture; i++) {
+            maxBaseFee = maxBaseFee.multiply(BigInteger.valueOf(1125)).divide(BigInteger.valueOf(1000)).add(BigInteger.ONE);
+        }
+        return maxBaseFee;
     }
 }

@@ -5,9 +5,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.exception.InvalidPubSubMessageException;
+import dev.rabbit.pojo.Path;
 import dev.rabbit.record.Body;
 import dev.rabbit.record.Tree;
 import dev.rabbit.service.ArbitrageService;
+import dev.rabbit.service.BundleService;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
@@ -28,13 +30,16 @@ public class ArbitrageController {
 
     private final ObjectMapper mapper;
     private final ArbitrageService arbitrageService;
+    private final BundleService bundleService;
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws IOException {
+    public ResponseEntity<List<Path>> receiveMessage(@RequestBody Body body) throws IOException {
         verifyMessageFormat(body);
         List<Tree> trees = parseBody(body);
-        arbitrageService.analyze(trees);
-        return ResponseEntity.accepted().build();
+        List<Path> profitablePaths = arbitrageService.analyze(trees);
+        if (profitablePaths.isEmpty()) return ResponseEntity.ok(profitablePaths);
+        bundleService.sendBundles(profitablePaths);
+        return ResponseEntity.ok(profitablePaths);
     }
 
     private void verifyMessageFormat(Body body) {

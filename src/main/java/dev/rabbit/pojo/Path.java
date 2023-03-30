@@ -6,6 +6,7 @@ import dev.rabbit.exception.ZeroAmountOutException;
 import dev.rabbit.record.Exchange;
 import dev.rabbit.record.Node;
 import dev.rabbit.utils.ValueConverter;
+import dev.rabbit.utils.Wallet;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +18,10 @@ import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.DynamicArray;
 import org.web3j.abi.datatypes.DynamicBytes;
 import org.web3j.abi.datatypes.Function;
+import org.web3j.crypto.RawTransaction;
+import org.web3j.crypto.TransactionEncoder;
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.EthEstimateGas;
 import org.web3j.utils.Numeric;
@@ -39,7 +43,6 @@ import static dev.rabbit.utils.Constants.R2;
 import static dev.rabbit.utils.Constants.getERC20TransferFn;
 import static dev.rabbit.utils.Constants.getJamExecuteTradeFn;
 import static dev.rabbit.utils.Constants.getV2SwapFn;
-import static org.web3j.utils.Convert.fromWei;
 
 @Slf4j
 @Getter
@@ -57,9 +60,12 @@ public class Path implements Comparable<Path> {
     @Setter
     private BigInteger baseFeePerGas;
     @Setter
+    private BigInteger maxBaseFeeInFutureBlock;
+    @Setter
     private BigInteger maxPriorityFeePerGas;
     private BigInteger gasUsed;
     private BigInteger netProfit;
+    private String signedTransaction;
     public static Path of() {
         return new Path();
     }
@@ -212,8 +218,7 @@ public class Path implements Comparable<Path> {
                 ? getV2SwapFn(BigInteger.ZERO, this.tradeAmounts[this.tradeAmounts.length - 1], JAM_BOT_ADDRESS, callData)
                 : getV2SwapFn(this.tradeAmounts[this.tradeAmounts.length - 1], BigInteger.ZERO, JAM_BOT_ADDRESS, callData);
 
-        String payloadString = encoder.encodeFunction(v2SwapFnWithCallData);
-        this.callData = Numeric.hexStringToByteArray(payloadString);
+        this.callData = Numeric.hexStringToByteArray(encoder.encodeFunction(v2SwapFnWithCallData));
     }
 
     public void simulate(Web3j web3j) throws IOException, GasEstimationFailureException {
@@ -228,6 +233,25 @@ public class Path implements Comparable<Path> {
         }
         this.gasUsed = response.getAmountUsed();
         this.netProfit = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(this.maxPriorityFeePerGas)));
+    }
+
+    public void buildSignedTransaction(Web3j web3j, Wallet wallet) throws IOException {
+        String startToken = this.trades.getFirst().getStart().getAddress();
+        String target = this.trades.getLast().getPool().getAddress();
+
+        String data = FunctionEncoder.encode(getJamExecuteTradeFn(startToken, target, this.callData));
+        RawTransaction transaction = RawTransaction.createTransaction(
+                1L,
+                web3j.ethGetTransactionCount(DEPLOYER_ADDRESS, DefaultBlockParameter.valueOf("latest")).send().getTransactionCount(),
+                BigDecimal.valueOf(1.5).multiply(new BigDecimal(String.valueOf(this.gasUsed))).toBigInteger(),
+                JAM_BOT_ADDRESS,
+                BigInteger.ZERO,
+                data,
+                this.maxPriorityFeePerGas,
+                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
+        );
+        byte[] signedTransaction = TransactionEncoder.signMessage(transaction, wallet.getAccount(0).getCredentials());
+        this.signedTransaction = Numeric.toHexString(signedTransaction);
     }
 
     private BigInteger getAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {

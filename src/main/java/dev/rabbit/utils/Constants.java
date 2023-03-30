@@ -20,9 +20,6 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-
-import static org.web3j.utils.Convert.Unit;
 
 @AllArgsConstructor(access = AccessLevel.NONE)
 public class Constants {
@@ -55,15 +52,5 @@ public class Constants {
     public static final String USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
     public static final BigDecimal R1 = new BigDecimal("0.997");
     public static final BigDecimal R2 = BigDecimal.ONE;
-    public static Map<String, Unit> conversions = Map.of(
-            "WETH", Unit.ETHER,
-            "USDC", Unit.MWEI,
-            "USDT", Unit.MWEI,
-            "DAI", Unit.ETHER,
-            "UNI", Unit.ETHER,
-            "SOTO", Unit.ETHER,
-            "ICHI", Unit.ETHER,
-            "LINK", Unit.ETHER,
-            "SUSHI", Unit.ETHER
-    );
+    public static final BigInteger ONE_GWEI = BigInteger.valueOf(1000000000);
 }

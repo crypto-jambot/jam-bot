@@ -1,5 +1,6 @@
 wallet:
-  secretKey: seed-phrase-key
+  seedPhraseKey: seed-phrase-key
+  flashBotKey: flashbot-signer-key
   projectId: crypto-351521
   numberOfAccounts: 1
 spring:

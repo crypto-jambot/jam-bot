@@ -3,6 +3,7 @@ package dev.rabbit.config;
 import okhttp3.OkHttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.web3j.crypto.Credentials;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.http.HttpService;
 
@@ -29,5 +30,10 @@ public class Web3Configuration {
                 .writeTimeout(10, TimeUnit.MINUTES)
                 .readTimeout(10, TimeUnit.MINUTES)
                 .build();
+    }
+
+    @Bean
+    public Credentials flashbotCredentials(WalletConfiguration walletConfiguration) {
+        return Credentials.create(walletConfiguration.getPrivateKey());
     }
 }

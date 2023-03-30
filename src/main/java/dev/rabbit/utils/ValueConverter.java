@@ -23,9 +23,7 @@ import static dev.rabbit.utils.Constants.WETH_ADDRESS;
 public class ValueConverter {
     private final OkHttpClient okHttpClient;
     private final ObjectMapper mapper;
-
     private static final String URL = "https://min-api.cryptocompare.com/data/price?fsym=%s&tsyms=ETH";
-
 
     public BigDecimal deriveEtherValue(Double ethPrice, BigInteger profitBeforeGas) {
         return BigDecimal.valueOf(ethPrice).multiply(new BigDecimal(profitBeforeGas));
