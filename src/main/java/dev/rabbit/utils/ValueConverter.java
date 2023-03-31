@@ -3,6 +3,7 @@ package dev.rabbit.utils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.pojo.Token;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -10,6 +11,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ObjectUtils;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -20,6 +22,7 @@ import static dev.rabbit.utils.Constants.WETH_ADDRESS;
 
 @Component
 @AllArgsConstructor
+@Slf4j
 public class ValueConverter {
     private final OkHttpClient okHttpClient;
     private final ObjectMapper mapper;
@@ -37,6 +40,10 @@ public class ValueConverter {
                 .build();
         try(Response response = okHttpClient.newCall(request).execute()) {
             String result = response.body().string();
+            if (ObjectUtils.isEmpty(result)) {
+                log.error(token.getSymbol());
+                throw new RuntimeException();
+            }
             Map<String, Double> responseMap =  mapper.readValue(result, Map.class);
             return responseMap.get("ETH");
         }
