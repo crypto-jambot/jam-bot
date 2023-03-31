@@ -18,7 +18,13 @@
 		<spring-cloud-gcp.version>4.1.1</spring-cloud-gcp.version>
 		<spring-cloud.version>2022.0.1</spring-cloud.version>
 		<web3j.version>4.9.4</web3j.version>
+		<connection>https://github.com/crypto-jambot/jam-bot.git</connection>
 	</properties>
+	<scm>
+        	<connection>scm:git:${connection}</connection>
+        	<developerConnection>scm:git:${connection}</developerConnection>
+        	<url>${connection}</url>
+    	</scm>
 
 	<profiles>
 		<profile>
