@@ -42,14 +42,16 @@ public class BundleService {
     private final Web3j web3j;
 
     public void sendBundles(List<Path> paths) throws IOException {
-        paths.forEach(path -> log.info("Sending some bundles to builder. Net profit is estimated to be: " + Convert.fromWei(path.getNetProfit().toString(), Convert.Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN) + " WETH"));
         BigInteger currentBlockNumber = web3j.ethBlockNumber().send().getBlockNumber();
+        BigInteger nextBlockNumber = currentBlockNumber.add(BigInteger.ONE);
+        BigInteger followingBlockNumber = currentBlockNumber.add(BigInteger.TWO);
+        paths.forEach(path -> log.info("Sending some bundles to builder. Net profit is estimated to be: " + Convert.fromWei(path.getNetProfit().toString(), Convert.Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN) + " WETH." + " Attempting blocks: " + nextBlockNumber + " and " + followingBlockNumber));
         List<String> jsonBodies = new ArrayList<>();
         for (Path path : paths) {
             jsonBodies.add(mapper.writeValueAsString(
-                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.ONE))));
+                    buildBody(path.getSignedTransaction(), nextBlockNumber)));
             jsonBodies.add(mapper.writeValueAsString(
-                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.TWO))));
+                    buildBody(path.getSignedTransaction(), followingBlockNumber)));
         }
 
         List<Request> requests = new ArrayList<>();
