@@ -21,7 +21,7 @@ steps:
       ]
   - name: gcr.io/cloud-builders/docker
     id: Pushing docker image to container registry
-    args: ['push', 'gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA']
+    args: [ 'push', 'gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA' ]
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: Deploying to ${_REGION}
     entrypoint: gcloud
@@ -48,6 +48,6 @@ substitutions:
   _SERVICE_NAME: jam-bot
   _MEMORY: 1Gi
   _CPU: 2000m
-  _CONCURRENCY: 200
+  _CONCURRENCY: "200"
 options:
   substitution_option: ALLOW_LOOSE
