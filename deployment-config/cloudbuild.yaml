@@ -37,7 +37,8 @@ steps:
         '--service-account',
         '$_SERVICE_ACCOUNT',
         '--memory=$_MEMORY',
-        '--cpu=$_CPU'
+        '--cpu=$_CPU',
+        '--concurrency=$_CONCURRENCY'
       ]
 images:
   - gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA
@@ -47,5 +48,6 @@ substitutions:
   _SERVICE_NAME: jam-bot
   _MEMORY: 1Gi
   _CPU: 2000m
+  _CONCURRENCY: 200
 options:
   substitution_option: ALLOW_LOOSE

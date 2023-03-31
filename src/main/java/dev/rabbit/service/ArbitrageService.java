@@ -106,11 +106,11 @@ public class ArbitrageService {
             path.setBaseFeePerGas(baseFeePerGas);
             path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
             path.setMaxPriorityFeePerGas(maxPriorityFeePerGas);
-            if (count >= 1) break;
+            if (count >= 5) break;
             try {
                 path.simulate(web3j);
                 count++;
-//                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
+                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
                 profitablePaths.add(path);
             }
             catch (GasEstimationFailureException exception) {
@@ -124,10 +124,6 @@ public class ArbitrageService {
         }
 
         profitablePaths.sort(Collections.reverseOrder());
-        log.info(String.format("Found a path! Profit in ETH: %s Native token: %s",
-                fromWei(profitablePaths.get(0).getNetProfit().toString(), Unit.ETHER).setScale(6,
-                        RoundingMode.HALF_DOWN), profitablePaths.get(0).getTrades().get(0).getStart().getSymbol()));
-
         return profitablePaths;
     }
 

@@ -12,8 +12,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import okhttp3.ResponseBody;
-import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.stereotype.Service;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.Hash;
@@ -44,12 +42,10 @@ public class BundleService {
         BigInteger currentBlockNumber = web3j.ethBlockNumber().send().getBlockNumber();
         List<String> jsonBodies = new ArrayList<>();
         for (Path path : paths) {
-            String jsonBody1 = mapper.writeValueAsString(
-                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.ONE)));
-            String jsonBody2 = mapper.writeValueAsString(
-                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.TWO)));
-            jsonBodies.add(jsonBody1);
-            jsonBodies.add(jsonBody2);
+            jsonBodies.add(mapper.writeValueAsString(
+                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.ONE))));
+            jsonBodies.add(mapper.writeValueAsString(
+                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.TWO))));
         }
 
         List<Request> requests = new ArrayList<>();
@@ -71,11 +67,7 @@ public class BundleService {
                 }
 
                 @Override
-                public void onResponse(Call call, Response response) throws IOException {
-                    ResponseBody body = response.body();
-                    if (ObjectUtils.isNotEmpty(body)) {
-                        System.out.println(body.string());
-                    }
+                public void onResponse(Call call, Response response) {
                     latch.countDown();
                 }
             });

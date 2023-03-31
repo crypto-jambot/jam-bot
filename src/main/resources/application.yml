@@ -13,3 +13,7 @@ spring:
           executor-threads: 10
 pubsub:
   topic: projects/crypto-351521/topics/transactions
+server:
+  tomcat:
+    threads:
+      max: 200

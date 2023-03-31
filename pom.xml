@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>dev.rabbit</groupId>
 	<artifactId>jam-bot</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0-SNAPSHOT</version>
 	<name>jam-bot</name>
 	<description>A Cloud Run application written with Spring that subscribes from PubSub containing DEX data and calculates MEV extraction via Flashbots.</description>
 	<properties>
