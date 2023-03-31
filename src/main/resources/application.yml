@@ -1,0 +1,19 @@
+wallet:
+  seedPhraseKey: seed-phrase-key
+  flashBotKey: flashbot-signer-key
+  projectId: crypto-351521
+  numberOfAccounts: 1
+spring:
+  cache:
+    cache-names: "token"
+  cloud:
+    gcp:
+      pubsub:
+        publisher:
+          executor-threads: 10
+pubsub:
+  topic: projects/crypto-351521/topics/transactions
+server:
+  tomcat:
+    threads:
+      max: 200

@@ -4,52 +4,69 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.rabbit.pojo.Body;
-import dev.rabbit.pojo.Tree;
+import dev.rabbit.exception.InvalidPubSubMessageException;
+import dev.rabbit.gateway.PubSubOutboundGateway;
+import dev.rabbit.pojo.Path;
+import dev.rabbit.record.Body;
+import dev.rabbit.record.Tree;
+import dev.rabbit.service.ArbitrageService;
+import dev.rabbit.service.BundleService;
+import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageHeaders;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
-import static dev.rabbit.pojo.Body.Message;
+import static dev.rabbit.record.Body.PubSubMessage;
 
 @RestController
+@AllArgsConstructor
 public class ArbitrageController {
 
     private final ObjectMapper mapper;
-
-    public ArbitrageController(ObjectMapper mapper) {
-        this.mapper = mapper;
-    }
+    private final ArbitrageService arbitrageService;
+    private final BundleService bundleService;
+    private final PubSubOutboundGateway pubSubOutboundGateway;
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<List<Tree>> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
-        // Get PubSub message from request body.
-        Message message = body.message();
+    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws IOException {
+        verifyMessageFormat(body);
+        List<Tree> trees = parseBody(body);
+        List<Path> profitablePaths = arbitrageService.analyze(trees);
+        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
+        bundleService.sendBundles(profitablePaths);
+        //Publish message
+        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
+                new MessageHeaders(Collections.emptyMap()));
+        pubSubOutboundGateway.sendToPubsub(message);
+        return ResponseEntity.accepted().build();
+    }
+
+    private void verifyMessageFormat(Body body) {
+        PubSubMessage message = body.message();
         if (message == null) {
-            String msg = "Bad Request: invalid Pub/Sub message format";
-            System.out.println(msg);
-//            return new ResponseEntity<>(msg, HttpStatus.BAD_REQUEST);
+            throw InvalidPubSubMessageException.of("Must contain message field");
         }
         String data = message.data();
         if (StringUtils.isBlank(data)) {
-            String msg = "Bad Request: invalid Pub/Sub message format. Must contain data field.";
-            System.out.println(msg);
-//            return new ResponseEntity<>(msg, HttpStatus.BAD_REQUEST);
+            throw InvalidPubSubMessageException.of("Must contain data field");
         }
-        String messageData = new String(Base64.getDecoder().decode(data));
-        JsonNode rootNode = mapper.readTree(messageData);
-        JsonNode treeListNode = rootNode.get("trees");
-        List<Tree> trees = mapper.readValue(treeListNode.toString(), new TypeReference<>() {});
+    }
 
-        System.out.println(messageData);
-        return new ResponseEntity<>(trees, HttpStatus.OK);
+    private List<Tree> parseBody(Body body) throws JsonProcessingException {
+        String messageData = new String(Base64.getDecoder().decode(body.message().data()));
+        JsonNode treeListNode = mapper.readTree(messageData).get("trees");
+        return mapper.readValue(treeListNode.toString(), new TypeReference<>() {
+        });
     }
 }

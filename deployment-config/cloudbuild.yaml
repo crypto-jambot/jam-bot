@@ -1,0 +1,53 @@
+steps:
+  - name: gcr.io/cloud-builders/gcloud
+    id: Download JAR
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        VERSION=$(gsutil ls gs://cloud-run-apps/artifacts/$_SERVICE_NAME | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | sort -V | tail -1)
+        gsutil cp gs://cloud-run-apps/artifacts/$_SERVICE_NAME/$$VERSION/* .
+  - name: gcr.io/cloud-builders/docker
+    id: Dockerize Artifact
+    entrypoint: docker
+    args:
+      [
+        "build",
+        "--build-arg",
+        "JAR_FILE=$_SERVICE_NAME.jar",
+        "-t",
+        "gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA",
+        "."
+      ]
+  - name: gcr.io/cloud-builders/docker
+    id: Pushing docker image to container registry
+    args: ['push', 'gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA']
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: Deploying to ${_REGION}
+    entrypoint: gcloud
+    args:
+      [
+        'run',
+        'deploy',
+        '$_SERVICE_NAME',
+        '--image',
+        'gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA',
+        '--region',
+        '$_REGION',
+        '--service-account',
+        '$_SERVICE_ACCOUNT',
+        '--memory=$_MEMORY',
+        '--cpu=$_CPU',
+        '--concurrency=$_CONCURRENCY'
+      ]
+images:
+  - gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA
+substitutions:
+  _REGION: us-central1
+  _SERVICE_ACCOUNT: jam-bot@crypto-351521.iam.gserviceaccount.com
+  _SERVICE_NAME: jam-bot
+  _MEMORY: 1Gi
+  _CPU: 2000m
+  _CONCURRENCY: 200
+options:
+  substitution_option: ALLOW_LOOSE

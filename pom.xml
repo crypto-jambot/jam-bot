@@ -10,14 +10,37 @@
 	</parent>
 	<groupId>dev.rabbit</groupId>
 	<artifactId>jam-bot</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0-SNAPSHOT</version>
 	<name>jam-bot</name>
 	<description>A Cloud Run application written with Spring that subscribes from PubSub containing DEX data and calculates MEV extraction via Flashbots.</description>
 	<properties>
 		<java.version>17</java.version>
 		<spring-cloud-gcp.version>4.1.1</spring-cloud-gcp.version>
 		<spring-cloud.version>2022.0.1</spring-cloud.version>
+		<web3j.version>4.9.4</web3j.version>
 	</properties>
+
+	<profiles>
+		<profile>
+			<id>github</id>
+			<repositories>
+				<repository>
+					<id>central</id>
+					<url>https://repo1.maven.org/maven2</url>
+					<releases><enabled>true</enabled></releases>
+					<snapshots><enabled>true</enabled></snapshots>
+				</repository>
+				<repository>
+					<id>github</id>
+					<name>contract-utils</name>
+					<url>https://maven.pkg.github.com/crypto-jambot/contract-utils</url>
+					<snapshots><enabled>true</enabled></snapshots>
+					<releases><enabled>true</enabled></releases>
+				</repository>
+			</repositories>
+		</profile>
+	</profiles>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -26,6 +49,10 @@
 		<dependency>
 			<groupId>com.google.cloud</groupId>
 			<artifactId>spring-cloud-gcp-starter-pubsub</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-cache</artifactId>
 		</dependency>
 
 		<dependency>
@@ -48,7 +75,29 @@
 			<artifactId>commons-lang3</artifactId>
 			<version>3.12.0</version>
 		</dependency>
-
+		<dependency>
+			<groupId>org.web3j</groupId>
+			<artifactId>core</artifactId>
+			<version>${web3j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>dev.rabbit</groupId>
+			<artifactId>contract-utils</artifactId>
+			<version>1.0.1</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.cloud</groupId>
+			<artifactId>google-cloud-secretmanager</artifactId>
+			<version>2.7.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.cloud</groupId>
+			<artifactId>spring-cloud-gcp-starter-pubsub</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.integration</groupId>
+			<artifactId>spring-integration-core</artifactId>
+		</dependency>
 	</dependencies>
 	<dependencyManagement>
 		<dependencies>
@@ -70,6 +119,7 @@
 	</dependencyManagement>
 
 	<build>
+		<finalName>${artifactId}</finalName>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
