@@ -18,10 +18,12 @@ import org.web3j.crypto.Credentials;
 import org.web3j.crypto.Hash;
 import org.web3j.crypto.Sign;
 import org.web3j.protocol.Web3j;
+import org.web3j.utils.Convert;
 import org.web3j.utils.Numeric;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -40,6 +42,7 @@ public class BundleService {
     private final Web3j web3j;
 
     public void sendBundles(List<Path> paths) throws IOException {
+        paths.forEach(path -> log.info("Sending some bundles to builder. Net profit is estimated to be: " + Convert.fromWei(path.getNetProfit().toString(), Convert.Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN) + " WETH"));
         BigInteger currentBlockNumber = web3j.ethBlockNumber().send().getBlockNumber();
         List<String> jsonBodies = new ArrayList<>();
         for (Path path : paths) {
@@ -63,12 +66,13 @@ public class BundleService {
             httpClient.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(@NotNull Call call, @NotNull IOException e) {
-                    e.printStackTrace();
+                    log.error(Arrays.toString(e.getStackTrace()));
                     latch.countDown();
                 }
 
                 @Override
-                public void onResponse(@NotNull Call call, @NotNull Response response) {
+                public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                    log.info(response.body().string());
                     response.close();
                     latch.countDown();
                 }
@@ -78,6 +82,7 @@ public class BundleService {
         // wait for all requests to complete
         try {
             latch.await();
+            log.info("Finished submitting all requests to builders.");
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

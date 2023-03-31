@@ -1,6 +1,7 @@
 package dev.rabbit.pojo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.ZeroAmountOutException;
 import dev.rabbit.record.Exchange;
@@ -38,6 +39,7 @@ import java.util.function.Supplier;
 
 import static dev.rabbit.utils.Constants.DEPLOYER_ADDRESS;
 import static dev.rabbit.utils.Constants.JAM_BOT_ADDRESS;
+import static dev.rabbit.utils.Constants.ONE_GWEI;
 import static dev.rabbit.utils.Constants.R1;
 import static dev.rabbit.utils.Constants.R2;
 import static dev.rabbit.utils.Constants.getERC20TransferFn;
@@ -175,7 +177,7 @@ public class Path implements Comparable<Path> {
         this.optimalTradingVolume = numerator.divide(R1, MathContext.DECIMAL128);
     }
 
-    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException {
+    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException, EthPriceRequestFailureException {
         tradeAmounts = new BigInteger[this.trades.size() + 1];
         tradeAmounts[0] = this.optimalTradingVolume.toBigInteger();
         for (int i = 0; i < trades.size(); i++) {
@@ -232,7 +234,19 @@ public class Path implements Comparable<Path> {
             throw GasEstimationFailureException.of();
         }
         this.gasUsed = response.getAmountUsed();
-        this.netProfit = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(this.maxPriorityFeePerGas)));
+        BigInteger netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(ONE_GWEI)));
+        BigInteger lowerBoundPriority = ONE_GWEI;
+        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
+        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
+        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(80)).divide(BigInteger.valueOf(100));
+        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
+            this.maxPriorityFeePerGas = lowerBoundPriority;
+        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
+            this.maxPriorityFeePerGas = higherBoundPriority;
+        } else {
+            this.maxPriorityFeePerGas = validatorSharePerGas;
+        }
+        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
     }
 
     public void buildSignedTransaction(Web3j web3j, Wallet wallet) throws IOException {

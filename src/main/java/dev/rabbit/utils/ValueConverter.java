@@ -1,6 +1,7 @@
 package dev.rabbit.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.pojo.Token;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,19 +34,25 @@ public class ValueConverter {
     }
 
     @Cacheable(value="token", key="#token")
-    public Double makeRequest(Token token) throws IOException {
+    public Double makeRequest(Token token) throws IOException, EthPriceRequestFailureException {
         if(token.getAddress().equalsIgnoreCase(WETH_ADDRESS)) return Double.valueOf("1.0");
         Request request = new Request.Builder()
                 .url(String .format(URL, token.getSymbol()))
                 .build();
         try(Response response = okHttpClient.newCall(request).execute()) {
+            if (ObjectUtils.isEmpty(response) || ObjectUtils.isEmpty(response.body())) {
+                throw EthPriceRequestFailureException.of(token.getSymbol());
+            }
             String result = response.body().string();
             if (ObjectUtils.isEmpty(result)) {
-                log.error(token.getSymbol());
-                throw new RuntimeException();
+                throw EthPriceRequestFailureException.of(token.getSymbol());
             }
             Map<String, Double> responseMap =  mapper.readValue(result, Map.class);
-            return responseMap.get("ETH");
+            Double ethPrice = responseMap.get("ETH");
+            if (ethPrice == null) {
+                throw EthPriceRequestFailureException.of(token.getSymbol());
+            }
+            return ethPrice;
         }
     }
 
