@@ -235,17 +235,18 @@ public class Path implements Comparable<Path> {
         }
         this.gasUsed = response.getAmountUsed();
         BigInteger netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(ONE_GWEI)));
-        BigInteger lowerBoundPriority = ONE_GWEI;
-        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
+//        BigInteger lowerBoundPriority = ONE_GWEI;
+//        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
         BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
-        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(80)).divide(BigInteger.valueOf(100));
-        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
-            this.maxPriorityFeePerGas = lowerBoundPriority;
-        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
-            this.maxPriorityFeePerGas = higherBoundPriority;
-        } else {
-            this.maxPriorityFeePerGas = validatorSharePerGas;
-        }
+        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
+//        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
+//            this.maxPriorityFeePerGas = lowerBoundPriority;
+//        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
+//            this.maxPriorityFeePerGas = higherBoundPriority;
+//        } else {
+//            this.maxPriorityFeePerGas = validatorSharePerGas;
+//        }
+        this.maxPriorityFeePerGas = validatorSharePerGas;
         this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
     }
 
