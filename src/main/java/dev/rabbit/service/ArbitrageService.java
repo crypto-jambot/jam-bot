@@ -111,7 +111,7 @@ public class ArbitrageService {
             try {
                 path.simulate(web3j);
                 count++;
-                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
+                if (path.getNetProfitAfterBaseFee().compareTo(BigInteger.ZERO) <= 0) continue;
                 profitablePaths.add(path);
                 break;
             }
