@@ -66,6 +66,7 @@ public class Path implements Comparable<Path> {
     @Setter
     private BigInteger maxPriorityFeePerGas;
     private BigInteger gasUsed;
+    private BigInteger netProfitAfterBaseFee;
     private BigInteger netProfit;
     private String signedTransaction;
     public static Path of() {
@@ -234,11 +235,11 @@ public class Path implements Comparable<Path> {
             throw GasEstimationFailureException.of();
         }
         this.gasUsed = response.getAmountUsed();
-        BigInteger netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(ONE_GWEI)));
+        this.netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas));
 //        BigInteger lowerBoundPriority = ONE_GWEI;
 //        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
-        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
-        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
+//        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
+//        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
 //        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
 //            this.maxPriorityFeePerGas = lowerBoundPriority;
 //        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
@@ -246,7 +247,7 @@ public class Path implements Comparable<Path> {
 //        } else {
 //            this.maxPriorityFeePerGas = validatorSharePerGas;
 //        }
-        this.maxPriorityFeePerGas = validatorSharePerGas;
+        this.maxPriorityFeePerGas = netProfitAfterBaseFee.divide(this.gasUsed);
         this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
     }
 
@@ -299,6 +300,6 @@ public class Path implements Comparable<Path> {
 
     @Override
     public int compareTo(@NotNull Path o) {
-        return (!ObjectUtils.isEmpty(this.netProfit) && !ObjectUtils.isEmpty(o.netProfit)) ? this.netProfit.compareTo(o.netProfit) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
+        return (!ObjectUtils.isEmpty(this.netProfitAfterBaseFee) && !ObjectUtils.isEmpty(o.netProfitAfterBaseFee)) ? this.netProfitAfterBaseFee.compareTo(o.netProfitAfterBaseFee) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
 }
