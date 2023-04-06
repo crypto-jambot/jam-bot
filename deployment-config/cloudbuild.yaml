@@ -39,7 +39,8 @@ steps:
         '--memory=$_MEMORY',
         '--cpu=$_CPU',
         '--concurrency=$_CONCURRENCY',
-        '--set-env-vars=JAVA_OPTS=$_JAVA_OPTS'
+        '--set-env-vars',
+        'JAVA_OPTS=$_JAVA_OPTS'
       ]
 images:
   - gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA
