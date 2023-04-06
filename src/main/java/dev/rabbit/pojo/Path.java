@@ -234,7 +234,7 @@ public class Path implements Comparable<Path> {
         if (!ObjectUtils.isEmpty(response.getError())) {
             throw GasEstimationFailureException.of();
         }
-        this.gasUsed = response.getAmountUsed();
+        this.gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(85)).divide(BigInteger.valueOf(100));
         this.netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas));
 //        BigInteger lowerBoundPriority = ONE_GWEI;
 //        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
