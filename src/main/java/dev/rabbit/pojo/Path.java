@@ -302,6 +302,6 @@ public class Path implements Comparable<Path> {
 
     @Override
     public int compareTo(@NotNull Path o) {
-        return (!ObjectUtils.isEmpty(this.netProfitAfterBaseFee) && !ObjectUtils.isEmpty(o.netProfitAfterBaseFee)) ? this.netProfitAfterBaseFee.compareTo(o.netProfitAfterBaseFee) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
+        return (!ObjectUtils.isEmpty(this.maxPriorityFeePerGas) && !ObjectUtils.isEmpty(o.maxPriorityFeePerGas)) ? this.maxPriorityFeePerGas.compareTo(o.maxPriorityFeePerGas) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
 }
