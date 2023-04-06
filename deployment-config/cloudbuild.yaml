@@ -51,6 +51,6 @@ substitutions:
   _MEMORY: 1.5Gi
   _CPU: 2000m
   _CONCURRENCY: "200"
-  _JAVA_OPTS: "-Xmx1G -Xms1G"
+  _JAVA_OPTS: "-Xmx1400m -Xms1400m"
 options:
   substitution_option: ALLOW_LOOSE
