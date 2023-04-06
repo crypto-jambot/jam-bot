@@ -234,7 +234,7 @@ public class Path implements Comparable<Path> {
         if (!ObjectUtils.isEmpty(response.getError())) {
             throw GasEstimationFailureException.of();
         }
-        this.gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(85)).divide(BigInteger.valueOf(100));
+        this.gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
         this.netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas));
 //        BigInteger lowerBoundPriority = ONE_GWEI;
 //        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
@@ -247,8 +247,9 @@ public class Path implements Comparable<Path> {
 //        } else {
 //            this.maxPriorityFeePerGas = validatorSharePerGas;
 //        }
-        this.maxPriorityFeePerGas = netProfitAfterBaseFee.divide(this.gasUsed);
-        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
+        this.maxPriorityFeePerGas = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).divide(this.gasUsed);
+//        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
+        this.netProfit = BigInteger.ZERO;
     }
 
     public void buildSignedTransaction(Web3j web3j, Wallet wallet) throws IOException {
@@ -264,7 +265,8 @@ public class Path implements Comparable<Path> {
                 BigInteger.ZERO,
                 data,
                 this.maxPriorityFeePerGas,
-                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
+//                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
+                this.maxPriorityFeePerGas
         );
         byte[] signedTransaction = TransactionEncoder.signMessage(transaction, wallet.getAccount(0).getCredentials());
         this.signedTransaction = Numeric.toHexString(signedTransaction);
