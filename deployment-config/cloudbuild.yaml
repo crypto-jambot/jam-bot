@@ -15,8 +15,6 @@ steps:
         "build",
         "--build-arg",
         "JAR_FILE=$_SERVICE_NAME.jar",
-        "--build-arg",
-        "JAVA_OPTS=-Xmx1Gi-Xms1Gi",
         "-t",
         "gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA",
         "."
@@ -40,7 +38,8 @@ steps:
         '$_SERVICE_ACCOUNT',
         '--memory=$_MEMORY',
         '--cpu=$_CPU',
-        '--concurrency=$_CONCURRENCY'
+        '--concurrency=$_CONCURRENCY',
+        '--set-env-vars=JAVA_OPTS=$_JAVA_OPTS'
       ]
 images:
   - gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA
@@ -51,5 +50,6 @@ substitutions:
   _MEMORY: 1.5Gi
   _CPU: 2000m
   _CONCURRENCY: "200"
+  _JAVA_OPTS: -Xmx1Gi-Xms1Gi
 options:
   substitution_option: ALLOW_LOOSE
