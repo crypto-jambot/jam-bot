@@ -5,7 +5,7 @@ name: Java CI with Maven
 
 on:
   push:
-    branches: [ "bugfix/null-pointer" ]
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -45,14 +45,14 @@ jobs:
         env:
           GITHUB_USER_REF: Github Actions Bot
           GITHUB_TOKEN_REF: ${{ secrets.ACCESS_TOKEN }}
-#      - name: Setup git config
-#        run: |
-#          git config user.name "GitHub Actions Bot"
-#          git config user.email "actions@github.com"
-#      - name: Release
-#        run: |
-#          mvn versions:set -DnewVersion='${project.version}-SNAPSHOT'
-#          mvn release:clean release:prepare -DskipTests -s settings.xml
-#        env:
-#          GITHUB_USERNAME: GitHub Actions Bot
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup git config
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+      - name: Release
+        run: |
+          mvn versions:set -DnewVersion='${project.version}-SNAPSHOT'
+          mvn release:clean release:prepare -DskipTests -s settings.xml
+        env:
+          GITHUB_USERNAME: GitHub Actions Bot
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
