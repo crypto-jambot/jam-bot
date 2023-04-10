@@ -1,5 +1,6 @@
 package dev.rabbit.service;
 
+import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.GetReservesFailureException;
 import dev.rabbit.exception.ZeroAmountOutException;
@@ -92,6 +93,9 @@ public class ArbitrageService {
             }
             catch (ZeroAmountOutException | IOException exception) {
                 return false;
+            } catch (EthPriceRequestFailureException e) {
+                log.error(e.getMessage());
+                return false;
             }
         }).sorted(Collections.reverseOrder()).toList();
 
@@ -100,18 +104,16 @@ public class ArbitrageService {
         BigInteger baseFeePerGas =
                 web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock().getBaseFeePerGas();
         BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas, 2);
-        BigInteger maxPriorityFeePerGas =
-                web3j.ethMaxPriorityFeePerGas().send().getMaxPriorityFeePerGas().add(ONE_GWEI);
         for (Path path : exploitablePaths) {
             path.setBaseFeePerGas(baseFeePerGas);
             path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
-            path.setMaxPriorityFeePerGas(maxPriorityFeePerGas);
             if (count >= 5) break;
             try {
                 path.simulate(web3j);
                 count++;
-                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
+                if (path.getNetProfitAfterBaseFee().compareTo(BigInteger.ZERO) <= 0) continue;
                 profitablePaths.add(path);
+                break;
             }
             catch (GasEstimationFailureException exception) {
                 // Ignore exception

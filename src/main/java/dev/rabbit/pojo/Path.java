@@ -1,6 +1,7 @@
 package dev.rabbit.pojo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.ZeroAmountOutException;
 import dev.rabbit.record.Exchange;
@@ -38,6 +39,7 @@ import java.util.function.Supplier;
 
 import static dev.rabbit.utils.Constants.DEPLOYER_ADDRESS;
 import static dev.rabbit.utils.Constants.JAM_BOT_ADDRESS;
+import static dev.rabbit.utils.Constants.ONE_GWEI;
 import static dev.rabbit.utils.Constants.R1;
 import static dev.rabbit.utils.Constants.R2;
 import static dev.rabbit.utils.Constants.getERC20TransferFn;
@@ -64,6 +66,7 @@ public class Path implements Comparable<Path> {
     @Setter
     private BigInteger maxPriorityFeePerGas;
     private BigInteger gasUsed;
+    private BigInteger netProfitAfterBaseFee;
     private BigInteger netProfit;
     private String signedTransaction;
     public static Path of() {
@@ -175,7 +178,7 @@ public class Path implements Comparable<Path> {
         this.optimalTradingVolume = numerator.divide(R1, MathContext.DECIMAL128);
     }
 
-    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException {
+    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException, EthPriceRequestFailureException {
         tradeAmounts = new BigInteger[this.trades.size() + 1];
         tradeAmounts[0] = this.optimalTradingVolume.toBigInteger();
         for (int i = 0; i < trades.size(); i++) {
@@ -231,8 +234,22 @@ public class Path implements Comparable<Path> {
         if (!ObjectUtils.isEmpty(response.getError())) {
             throw GasEstimationFailureException.of();
         }
-        this.gasUsed = response.getAmountUsed();
-        this.netProfit = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas.add(this.maxPriorityFeePerGas)));
+        this.gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
+        this.netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas));
+//        BigInteger lowerBoundPriority = ONE_GWEI;
+//        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
+//        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
+//        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
+//        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
+//            this.maxPriorityFeePerGas = lowerBoundPriority;
+//        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
+//            this.maxPriorityFeePerGas = higherBoundPriority;
+//        } else {
+//            this.maxPriorityFeePerGas = validatorSharePerGas;
+//        }
+        this.maxPriorityFeePerGas = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).divide(this.gasUsed);
+//        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
+        this.netProfit = BigInteger.ZERO;
     }
 
     public void buildSignedTransaction(Web3j web3j, Wallet wallet) throws IOException {
@@ -248,7 +265,8 @@ public class Path implements Comparable<Path> {
                 BigInteger.ZERO,
                 data,
                 this.maxPriorityFeePerGas,
-                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
+//                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
+                this.maxPriorityFeePerGas
         );
         byte[] signedTransaction = TransactionEncoder.signMessage(transaction, wallet.getAccount(0).getCredentials());
         this.signedTransaction = Numeric.toHexString(signedTransaction);
@@ -284,6 +302,6 @@ public class Path implements Comparable<Path> {
 
     @Override
     public int compareTo(@NotNull Path o) {
-        return (!ObjectUtils.isEmpty(this.netProfit) && !ObjectUtils.isEmpty(o.netProfit)) ? this.netProfit.compareTo(o.netProfit) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
+        return (!ObjectUtils.isEmpty(this.maxPriorityFeePerGas) && !ObjectUtils.isEmpty(o.maxPriorityFeePerGas)) ? this.maxPriorityFeePerGas.compareTo(o.maxPriorityFeePerGas) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
 }

@@ -12,15 +12,18 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.stereotype.Service;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.Hash;
 import org.web3j.crypto.Sign;
 import org.web3j.protocol.Web3j;
+import org.web3j.utils.Convert;
 import org.web3j.utils.Numeric;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -40,12 +43,15 @@ public class BundleService {
 
     public void sendBundles(List<Path> paths) throws IOException {
         BigInteger currentBlockNumber = web3j.ethBlockNumber().send().getBlockNumber();
+        BigInteger nextBlockNumber = currentBlockNumber.add(BigInteger.ONE);
+        BigInteger followingBlockNumber = currentBlockNumber.add(BigInteger.TWO);
+        paths.forEach(path -> log.info("Sending some bundles to builder. Net profit is estimated to be: " + Convert.fromWei(path.getNetProfit().toString(), Convert.Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN) + " WETH." + " Attempting blocks: " + nextBlockNumber + " and " + followingBlockNumber));
         List<String> jsonBodies = new ArrayList<>();
         for (Path path : paths) {
             jsonBodies.add(mapper.writeValueAsString(
-                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.ONE))));
+                    buildBody(path.getSignedTransaction(), nextBlockNumber)));
             jsonBodies.add(mapper.writeValueAsString(
-                    buildBody(path.getSignedTransaction(), currentBlockNumber.add(BigInteger.TWO))));
+                    buildBody(path.getSignedTransaction(), followingBlockNumber)));
         }
 
         List<Request> requests = new ArrayList<>();
@@ -61,13 +67,15 @@ public class BundleService {
         for (Request request : requests) {
             httpClient.newCall(request).enqueue(new Callback() {
                 @Override
-                public void onFailure(Call call, IOException e) {
-                    e.printStackTrace();
+                public void onFailure(@NotNull Call call, @NotNull IOException e) {
+                    log.error(Arrays.toString(e.getStackTrace()));
                     latch.countDown();
                 }
 
                 @Override
-                public void onResponse(Call call, Response response) {
+                public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                    log.info(response.body().string());
+                    response.close();
                     latch.countDown();
                 }
             });
@@ -76,6 +84,7 @@ public class BundleService {
         // wait for all requests to complete
         try {
             latch.await();
+            log.info("Finished submitting all requests to builders.");
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
