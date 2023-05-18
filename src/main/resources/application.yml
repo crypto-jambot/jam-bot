@@ -3,6 +3,50 @@ wallet:
   flashBotKey: flashbot-signer-key
   projectId: crypto-351521
   numberOfAccounts: 1
+defi:
+  protocols:
+    uniswapV2:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    sushiswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    shibaswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    pancakeswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    defiswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    luaswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    bamboodefi:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    linkswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    swapr:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    fraxswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    capitaldex:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    unicswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    youswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    convergence:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    empiredex:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    elkfinance:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    orionprotocol:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    bxh:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    apeswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    radioshack:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    uniswapV3:
+      poolType: dev.rabbit.pool.UniswapV3Pool
 spring:
   cache:
     cache-names: "token"

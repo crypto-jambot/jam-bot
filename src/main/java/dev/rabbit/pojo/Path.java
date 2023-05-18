@@ -1,12 +1,11 @@
 package dev.rabbit.pojo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.rabbit.exception.EthPriceRequestFailureException;
+import com.google.cloud.Tuple;
 import dev.rabbit.exception.GasEstimationFailureException;
-import dev.rabbit.exception.ZeroAmountOutException;
-import dev.rabbit.record.Exchange;
-import dev.rabbit.record.Node;
-import dev.rabbit.utils.ValueConverter;
+import dev.rabbit.exception.ZeroAmountException;
+import dev.rabbit.pool.Pool;
+import dev.rabbit.record.Tree;
 import dev.rabbit.utils.Wallet;
 import lombok.Getter;
 import lombok.Setter;
@@ -39,22 +38,19 @@ import java.util.function.Supplier;
 
 import static dev.rabbit.utils.Constants.DEPLOYER_ADDRESS;
 import static dev.rabbit.utils.Constants.JAM_BOT_ADDRESS;
-import static dev.rabbit.utils.Constants.ONE_GWEI;
-import static dev.rabbit.utils.Constants.R1;
 import static dev.rabbit.utils.Constants.R2;
+import static dev.rabbit.utils.Constants.feeToPercent;
 import static dev.rabbit.utils.Constants.getERC20TransferFn;
 import static dev.rabbit.utils.Constants.getJamExecuteTradeFn;
 import static dev.rabbit.utils.Constants.getV2SwapFn;
+import static java.math.BigInteger.ZERO;
 
 @Slf4j
 @Getter
 public class Path implements Comparable<Path> {
     private static final ObjectMapper mapper = new ObjectMapper();
     private final LinkedList<Trade> trades = new LinkedList<>();
-
-    private BigDecimal virtualInputReserve;
-    private BigDecimal virtualOutputReserve;
-    private BigDecimal optimalTradingVolume;
+    private BigInteger optimalTradingVolume;
     private BigInteger[] tradeAmounts;
     private BigInteger profitBeforeGas;
     private BigDecimal profitBeforeGasInEther;
@@ -77,20 +73,33 @@ public class Path implements Comparable<Path> {
         path.trades.forEach(newPath::addTrade);
         return newPath;
     }
-    public void addTrade(Node start, Node end, Exchange pool, boolean ordered) {
+
+    /**
+     * Add a trade to this path.
+     * @param start The Start Node. This will be mapped to the Start token in the trade object. It will create a new object.
+     * @param end The End Node. This will be mapped to the End token in the trade object. It will create a new object.
+     * @param pool This will be mapped to the Pool object in the trade object. It will be the same reference to the underlying Pool.
+     * @param ordered Whether this trade is ordered or not.
+     */
+    public void addTrade(Tree.Node start, Tree.Node end, Pool pool, boolean ordered) {
         trades.add(Trade.builder()
                 .start(Token.of(start))
                 .end(Token.of(end))
-                .pool(Pool.of(pool))
+                .pool(pool)
                 .ordered(ordered)
                 .build());
     }
 
-    public void addTrade(Trade trade) {
+    /**
+     * Adds a trade to this path.
+     * @param trade A new Trade will be built and added to this path.
+     *              The pool field is assigned via refernce to the newly built trade.
+     */
+    private void addTrade(Trade trade) {
         trades.add(Trade.builder()
                 .start(Token.of(trade.getStart()))
                 .end(Token.of(trade.getEnd()))
-                .pool(Pool.of(trade.getPool()))
+                .pool(trade.getPool())
                 .ordered(trade.isOrdered())
                 .build());
     }
@@ -109,8 +118,10 @@ public class Path implements Comparable<Path> {
         BigDecimal multipliedOutputFees = BigDecimal.ONE;
 
         for (Trade trade : this.trades) {
-            BigInteger reserve0 = trade.getPool().getReserves().reserve0();
-            BigInteger reserve1 = trade.getPool().getReserves().reserve1();
+            BigInteger reserve0 = trade.getPool().getReserve0();
+            BigInteger reserve1 = trade.getPool().getReserve1();
+
+            if (reserve0.compareTo(ZERO) <= 0 || reserve1.compareTo(ZERO) <= 0) return false;
 
             if (trade.isOrdered()) {
                 leftOperandNumerator = leftOperandNumerator.multiply(reserve1);
@@ -120,7 +131,8 @@ public class Path implements Comparable<Path> {
                 leftOperandDenominator = leftOperandDenominator.multiply(reserve1);
             }
 
-            multipliedInputFees = multipliedInputFees.multiply(R1);
+            multipliedInputFees = multipliedInputFees.multiply(feeToPercent(trade.getPool().getFee()));
+            // Constant as of present time. Could be changed in future
             multipliedOutputFees = multipliedOutputFees.multiply(R2);
         }
 
@@ -132,62 +144,92 @@ public class Path implements Comparable<Path> {
     }
 
     // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
-    public void calculateEquivalentLiquidity() {
-        BigInteger[] orderedReserves = this.trades.get(0).getOrderedReserves();
-        BigDecimal inputReserve = new BigDecimal(orderedReserves[0]);
-        BigDecimal outputReserve = new BigDecimal(orderedReserves[1]);
+    // Derive the virtual reserves with the ith fee
+    public void calculateOptimalTradingVolume() throws ZeroAmountException {
+        // Supplier will be reused to recalculate the optimal trading amount
+        Supplier<BigDecimal> getOptimalAmountFn = () -> {
+            Tuple<BigInteger, BigInteger> orderedReserves = trades.get(0).getOrderedReserves();
+            BigDecimal inputReserve = new BigDecimal(orderedReserves.x());
+            BigDecimal outputReserve = new BigDecimal(orderedReserves.y());
+            int fee = trades.get(0).getPool().getFee();
+            for (int i = 1; i < trades.size(); i++) {
+                BigDecimal R1 = feeToPercent(trades.get(i).getPool().getFee());
 
-        for (int i = 1; i < this.trades.size() - 1; i++) {
-            orderedReserves = this.trades.get(i).getOrderedReserves();
-            BigDecimal ithInputReserve = new BigDecimal(orderedReserves[0]);
-            BigDecimal ithOutputReserve = new BigDecimal(orderedReserves[1]);
+                orderedReserves = trades.get(i).getOrderedReserves();
+                BigDecimal ithInputReserve = new BigDecimal(orderedReserves.x());
+                BigDecimal ithOutputReserve = new BigDecimal(orderedReserves.y());
 
-            BigDecimal iRNumerator = inputReserve.multiply(ithInputReserve);
-            BigDecimal oRNumerator = R1.multiply(R2).multiply(outputReserve).multiply(ithOutputReserve);
-            BigDecimal rDenominator = ithInputReserve.add(R1.multiply(R2).multiply(outputReserve));
+                BigDecimal iRNumerator = inputReserve.multiply(ithInputReserve);
+                BigDecimal oRNumerator = R1.multiply(R2).multiply(outputReserve).multiply(ithOutputReserve);
+                BigDecimal rDenominator = ithInputReserve.add(R1.multiply(R2).multiply(outputReserve));
 
-            inputReserve = iRNumerator.divide(rDenominator, 30, RoundingMode.HALF_DOWN);
-            outputReserve = oRNumerator.divide(rDenominator, 30, RoundingMode.HALF_DOWN);
-        }
-
-        this.virtualInputReserve = inputReserve;
-        this.virtualOutputReserve = outputReserve;
-    }
-
-    // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
-    public void calculateOptimalTradingVolume() {
-        BigDecimal[] lastSwapOrderedReserves = getLastSwapOrderedReserves();
-        BigDecimal lastSwapInputReserve = lastSwapOrderedReserves[0];
-        BigDecimal lastSwapOutputReserve = lastSwapOrderedReserves[1];
-
-        Supplier<BigDecimal> getAOrAPrimeDenominator = () -> lastSwapInputReserve.add(R1.multiply(R2).multiply(virtualOutputReserve));
-
-        Supplier<BigDecimal> calculateA = () -> {
-            BigDecimal aNumerator = virtualInputReserve.multiply(lastSwapInputReserve);
-            return aNumerator.divide(getAOrAPrimeDenominator.get(), 30, RoundingMode.HALF_DOWN);
+                inputReserve = iRNumerator.divide(rDenominator, 30, RoundingMode.HALF_DOWN);
+                outputReserve = oRNumerator.divide(rDenominator, 30, RoundingMode.HALF_DOWN);
+            }
+            BigDecimal numerator = feeToPercent(fee).multiply(R2).multiply(outputReserve).multiply(inputReserve).sqrt(MathContext.DECIMAL128).subtract(inputReserve);
+            return numerator.divide(feeToPercent(fee), MathContext.DECIMAL128);
         };
 
-        Supplier<BigDecimal> calculateAPrime = () -> {
-            BigDecimal aPrimeNumerator = R1.multiply(R2).multiply(lastSwapOutputReserve).multiply(virtualOutputReserve);
-            return aPrimeNumerator.divide(getAOrAPrimeDenominator.get(), 30, RoundingMode.HALF_DOWN);
-        };
+        // Determine initial optimal trading amount
+        // Input amount is subject to change if ticks are encountered
+        BigInteger inputAmount = getOptimalAmountFn.get().toBigInteger();
+        BigInteger inputAmountToEarliestTick = null;
 
-        BigDecimal a = calculateA.get();
-        BigDecimal aPrime = calculateAPrime.get();
-        BigDecimal numerator = R1.multiply(R2).multiply(aPrime).multiply(a).sqrt(MathContext.DECIMAL128).subtract(a);
-        this.optimalTradingVolume = numerator.divide(R1, MathContext.DECIMAL128);
-    }
+        // Sometimes the optimal amount is so small that flooring via toBigInteger() results in 0
+        // This path does not contain extractable value
+        if (inputAmount.equals(ZERO)) throw new ZeroAmountException();
 
-    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException, EthPriceRequestFailureException {
-        tradeAmounts = new BigInteger[this.trades.size() + 1];
-        tradeAmounts[0] = this.optimalTradingVolume.toBigInteger();
+        // Populate input and outputs from each trade assuming no tick crossings
+        // This computes the initial trade amounts through the path.
+        populateInputAndOutputTradeAmounts(inputAmount);
+
+        // For each trade, determine whether the input amount is exhausted first or if a tick is encountered
+        // If a tick is encountered, we must recalculate the initial input amount into the path to swap up to this tick
+        // After iteration, we must find the earliest point where a tick is encountered and perform a partial swap up to the tick
         for (int i = 0; i < trades.size(); i++) {
-            BigInteger[] orderedReserves = trades.get(i).getOrderedReserves();
-            tradeAmounts[i + 1] = getAmountOut(tradeAmounts[i], orderedReserves[0], orderedReserves[1]);
+            Trade trade = trades.get(i);
+            BigInteger ithTradeFullInputAmountOrToFirstTick = trade.getFullInputAmountOrToFirstTick();
+
+            // If we didn't encounter a tick, then continue
+            if (trade.getAmountIn().equals(ithTradeFullInputAmountOrToFirstTick)) {
+                continue;
+            }
+
+            // If we encounter a tick, and it is the first trade, then we already have the initial input required to cross said tick
+            if (i == 0) {
+                inputAmount = ithTradeFullInputAmountOrToFirstTick;
+                continue;
+            }
+
+            // If we encounter a tick, and it is not the first trade, then we must recalculate the initial input amount into the path to swap up to this tick
+            inputAmountToEarliestTick = ithTradeFullInputAmountOrToFirstTick;
+            // Recalculate trade inputs to derive the initial input for the path to swap to the tick crossing
+            for (int j = i - 1; j >= 0; j--) {
+                inputAmountToEarliestTick = trades.get(j).getAmountInAssumingNoTickCrossings(inputAmountToEarliestTick);
+            }
         }
-        this.profitBeforeGas = tradeAmounts[this.trades.size()].subtract(tradeAmounts[0]);
-        this.profitBeforeGasInEther = valueConverter.deriveEtherValue(valueConverter.makeRequest(this.trades.get(0).getStart()), this.profitBeforeGas);
+
+        // If inputAmountToEarliestTick is null, that means no ticks were encountered in the path.
+        if (inputAmountToEarliestTick == null) {
+            optimalTradingVolume = inputAmount;
+            return;
+        }
+
+        // Perform a partial dry run of a swap to the earliest tick
+        trades.forEach(trade -> trade.getPool().in);
+
     }
+
+//    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException, EthPriceRequestFailureException {
+//        tradeAmounts = new BigInteger[this.trades.size() + 1];
+//        tradeAmounts[0] = this.optimalTradingVolume.toBigInteger();
+//        for (int i = 0; i < trades.size(); i++) {
+//            BigInteger[] orderedReserves = trades.get(i).getOrderedReserves();
+//            tradeAmounts[i + 1] = getAmountOut(tradeAmounts[i], orderedReserves[0], orderedReserves[1]);
+//        }
+//        this.profitBeforeGas = tradeAmounts[this.trades.size()].subtract(tradeAmounts[0]);
+//        this.profitBeforeGasInEther = valueConverter.deriveEtherValue(valueConverter.makeRequest(this.trades.get(0).getStart()), this.profitBeforeGas);
+//    }
 
     public void encodeCallData() {
         DefaultFunctionEncoder encoder = new DefaultFunctionEncoder();
@@ -203,8 +245,8 @@ public class Path implements Comparable<Path> {
         for (int i = 1; i < this.trades.size(); i++) {
             targetArray[i] = new Address(this.trades.get(i - 1).getPool().getAddress());
             Function v2SwapFn = this.trades.get(i - 1).isOrdered()
-                    ? getV2SwapFn(BigInteger.ZERO, this.tradeAmounts[i], this.trades.get(i).getPool().getAddress(), new byte[0])
-                    : getV2SwapFn(this.tradeAmounts[i], BigInteger.ZERO, this.trades.get(i).getPool().getAddress(), new byte[0]);
+                    ? getV2SwapFn(ZERO, this.tradeAmounts[i], this.trades.get(i).getPool().getAddress(), new byte[0])
+                    : getV2SwapFn(this.tradeAmounts[i], ZERO, this.trades.get(i).getPool().getAddress(), new byte[0]);
             payloadArray[i] = new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(v2SwapFn)));
         }
 
@@ -218,8 +260,8 @@ public class Path implements Comparable<Path> {
         // Encode the last swap call with calldata
         Trade lastTrade = this.trades.getLast();
         Function v2SwapFnWithCallData = lastTrade.isOrdered()
-                ? getV2SwapFn(BigInteger.ZERO, this.tradeAmounts[this.tradeAmounts.length - 1], JAM_BOT_ADDRESS, callData)
-                : getV2SwapFn(this.tradeAmounts[this.tradeAmounts.length - 1], BigInteger.ZERO, JAM_BOT_ADDRESS, callData);
+                ? getV2SwapFn(ZERO, this.tradeAmounts[this.tradeAmounts.length - 1], JAM_BOT_ADDRESS, callData)
+                : getV2SwapFn(this.tradeAmounts[this.tradeAmounts.length - 1], ZERO, JAM_BOT_ADDRESS, callData);
 
         this.callData = Numeric.hexStringToByteArray(encoder.encodeFunction(v2SwapFnWithCallData));
     }
@@ -249,7 +291,7 @@ public class Path implements Comparable<Path> {
 //        }
         this.maxPriorityFeePerGas = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).divide(this.gasUsed);
 //        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
-        this.netProfit = BigInteger.ZERO;
+        this.netProfit = ZERO;
     }
 
     public void buildSignedTransaction(Web3j web3j, Wallet wallet) throws IOException {
@@ -262,7 +304,7 @@ public class Path implements Comparable<Path> {
                 web3j.ethGetTransactionCount(DEPLOYER_ADDRESS, DefaultBlockParameter.valueOf("latest")).send().getTransactionCount(),
                 BigDecimal.valueOf(1.5).multiply(new BigDecimal(String.valueOf(this.gasUsed))).toBigInteger(),
                 JAM_BOT_ADDRESS,
-                BigInteger.ZERO,
+                ZERO,
                 data,
                 this.maxPriorityFeePerGas,
 //                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
@@ -272,31 +314,40 @@ public class Path implements Comparable<Path> {
         this.signedTransaction = Numeric.toHexString(signedTransaction);
     }
 
-    private BigInteger getAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
-        checkInputs(amountIn, reserveIn, reserveOut);
-        BigInteger amountInWithFee = amountIn.multiply(new BigInteger("997"));
-        BigInteger numerator = amountInWithFee.multiply(reserveOut);
-        BigInteger denominator = reserveIn.multiply(new BigInteger("1000")).add(amountInWithFee);
-        return numerator.divide(denominator);
+//    private BigInteger getAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
+//        checkInputs(amountIn, reserveIn, reserveOut);
+//        BigInteger amountInWithFee = amountIn.multiply(new BigInteger("997"));
+//        BigInteger numerator = amountInWithFee.multiply(reserveOut);
+//        BigInteger denominator = reserveIn.multiply(new BigInteger("1000")).add(amountInWithFee);
+//        return numerator.divide(denominator);
+//    }
+
+//    private BigDecimal[] getLastSwapOrderedReserves() {
+//        return (BigDecimal[]) Arrays.stream(trades.getLast().getOrderedReserves()).map(BigDecimal::new).toArray();
+//        Trade lastTrade = this.trades.get(this.trades.size() - 1);
+//        BigDecimal lastTradeReserve0 = new BigDecimal(lastTrade.getPool().getReserves().reserve0());
+//        BigDecimal lastTradeReserve1 = new BigDecimal(lastTrade.getPool().getReserves().reserve1());
+//        BigDecimal lastSwapInputReserve = lastTrade.isOrdered() ? lastTradeReserve0 : lastTradeReserve1;
+//        BigDecimal lastSwapOutputReserve = lastTrade.isOrdered() ? lastTradeReserve1 : lastTradeReserve0;
+//        return new BigDecimal[]{lastSwapInputReserve, lastSwapOutputReserve};
+//    }
+    public void populateInputAndOutputTradeAmounts(BigInteger initialAmountIn) {
+        trades.get(0).setAmountIn(initialAmountIn);
+        for (int i = 0; i < trades.size(); i++) {
+            Trade trade = trades.get(i);
+            trade.computeAndSetAmountOutAssumingNoTickCrossings();
+            if (i != trades.size() - 1) trades.get(i + 1).setAmountIn(trade.getAmountOut());
+        }
     }
 
-    private BigDecimal[] getLastSwapOrderedReserves() {
-        Trade lastTrade = this.trades.get(this.trades.size() - 1);
-        BigDecimal lastTradeReserve0 = new BigDecimal(lastTrade.getPool().getReserves().reserve0());
-        BigDecimal lastTradeReserve1 = new BigDecimal(lastTrade.getPool().getReserves().reserve1());
-        BigDecimal lastSwapInputReserve = lastTrade.isOrdered() ? lastTradeReserve0 : lastTradeReserve1;
-        BigDecimal lastSwapOutputReserve = lastTrade.isOrdered() ? lastTradeReserve1 : lastTradeReserve0;
-        return new BigDecimal[]{lastSwapInputReserve, lastSwapOutputReserve};
-    }
-
-    private void checkInputs(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
+    private void checkInputs(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountException {
         if (ObjectUtils.isEmpty(amountIn) ||
             ObjectUtils.isEmpty(reserveIn) ||
             ObjectUtils.isEmpty(reserveOut) ||
-            amountIn.compareTo(BigInteger.ZERO) <= 0 ||
-            reserveIn.compareTo(BigInteger.ZERO) <= 0 ||
-            reserveOut.compareTo(BigInteger.ZERO) <= 0) {
-            throw new ZeroAmountOutException();
+            amountIn.compareTo(ZERO) <= 0 ||
+            reserveIn.compareTo(ZERO) <= 0 ||
+            reserveOut.compareTo(ZERO) <= 0) {
+            throw new ZeroAmountException();
         }
     }
 

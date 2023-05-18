@@ -5,26 +5,25 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.exception.InvalidPubSubMessageException;
+import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.gateway.PubSubOutboundGateway;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.record.Body;
 import dev.rabbit.record.Tree;
 import dev.rabbit.service.ArbitrageService;
 import dev.rabbit.service.BundleService;
+import dev.rabbit.spring.SpringContext;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageHeaders;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.List;
 
 import static dev.rabbit.record.Body.PubSubMessage;
@@ -34,22 +33,23 @@ import static dev.rabbit.record.Body.PubSubMessage;
 public class ArbitrageController {
 
     private final ObjectMapper mapper;
+    private final PoolFactory poolFactory;
     private final ArbitrageService arbitrageService;
     private final BundleService bundleService;
     private final PubSubOutboundGateway pubSubOutboundGateway;
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws IOException {
+    public ResponseEntity<List<Path>> receiveMessage(@RequestBody Body body) throws IOException {
         verifyMessageFormat(body);
-        List<Tree> trees = parseBody(body);
-        List<Path> profitablePaths = arbitrageService.analyze(trees);
-        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
-        bundleService.sendBundles(profitablePaths);
-        //Publish message
-        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
-                new MessageHeaders(Collections.emptyMap()));
-        pubSubOutboundGateway.sendToPubsub(message);
-        return ResponseEntity.accepted().build();
+        List<Path> paths = arbitrageService.analyze(derivePaths(parseBody(body)));
+//        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
+//        bundleService.sendBundles(profitablePaths);
+//        //Publish message
+//        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
+//                new MessageHeaders(Collections.emptyMap()));
+//        pubSubOutboundGateway.sendToPubsub(message);
+        SpringContext.getBean(PoolFactory.class).clearPools();
+        return ResponseEntity.ok(paths);
     }
 
     private void verifyMessageFormat(Body body) {
@@ -68,5 +68,19 @@ public class ArbitrageController {
         JsonNode treeListNode = mapper.readTree(messageData).get("trees");
         return mapper.readValue(treeListNode.toString(), new TypeReference<>() {
         });
+    }
+
+    private List<Path> derivePaths(List<Tree> trees) {
+        // Traverse the list of trees to build a total list of paths.
+        final List<Path> paths = new ArrayList<>();
+        trees.forEach(tree -> {
+            Path path = Path.of();
+            Tree.Node startToken = tree.node();
+            tree.traverse(((start, end, pool, ordered) -> {
+                path.addTrade(start, end, poolFactory.createPool(pool), ordered);
+                if (end.equals(startToken)) paths.add(Path.of(path));
+            }), path::removeLast);
+        });
+        return paths;
     }
 }

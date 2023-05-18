@@ -1,7 +1,7 @@
 package dev.rabbit.exception;
 
-public class ZeroAmountOutException extends Exception {
-    public ZeroAmountOutException() {
+public class ZeroAmountException extends Exception {
+    public ZeroAmountException() {
         super("Zero Reserves or Liquidity calculated");
     }
 }
