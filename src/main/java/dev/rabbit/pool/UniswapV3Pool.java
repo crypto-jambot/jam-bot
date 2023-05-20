@@ -1,7 +1,6 @@
 package dev.rabbit.pool;
 
 import com.google.cloud.Tuple;
-import com.google.common.base.Preconditions;
 import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.generated.IUniswapV3Pool;
 import dev.rabbit.record.Tree;
@@ -10,8 +9,6 @@ import dev.rabbit.utils.Wallet;
 import dev.rabbit.utils.v3.FullMath;
 import dev.rabbit.utils.v3.SqrtPriceMath;
 import dev.rabbit.utils.v3.TickMath;
-import lombok.Builder;
-import lombok.Data;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.TypeReference;
@@ -48,16 +45,10 @@ import static dev.rabbit.utils.Constants.Q96;
 import static java.math.BigInteger.ONE;
 import static java.math.BigInteger.ZERO;
 
-public class UniswapV3Pool extends Pool {
+public class UniswapV3Pool extends Pool<V3State> {
 
     private final IUniswapV3Pool contract;
     private final int tickSpacing;
-    private BigInteger liquidity;
-    private BigInteger sqrtPriceX96;
-    private BigDecimal sqrtPrice;
-    private BigInteger tick;
-    private boolean useCache;
-    private SwapCache cache;
     private final Map<BigInteger, BigInteger> tickBitmap = new HashMap<>();
     public static final Function V3_LIQUIDITY_FN = new Function(IUniswapV3Pool.FUNC_LIQUIDITY, List.of(), List.of(new TypeReference<Uint128>() {}));
     public static final String V3_LIQUIDITY_ENCODED_FN = FunctionEncoder.encode(V3_LIQUIDITY_FN);
@@ -75,7 +66,7 @@ public class UniswapV3Pool extends Pool {
         super(exchange);
         tickSpacing = exchange.tickSpacing();
         contract = IUniswapV3Pool.load(address, SpringContext.getBean(Web3j.class), SpringContext.getBean(Wallet.class).getAccount(0).getCredentials(), new StaticGasProvider(ZERO, ZERO));
-        useCache = false;
+        state = new V3State();
     }
 
     @Override
@@ -90,50 +81,50 @@ public class UniswapV3Pool extends Pool {
     public void assignData(List<Response<?>> responses) {
         Response<?> liquidityResponse = responses.get(0);
         List<Type> liquidityOutputTypes = FunctionReturnDecoder.decode((String) liquidityResponse.getResult(), V3_LIQUIDITY_FN.getOutputParameters());
-        setLiquidity((BigInteger) liquidityOutputTypes.get(0).getValue());
+        state.setLiquidity((BigInteger) liquidityOutputTypes.get(0).getValue());
 
         Response<?> slot0Response = responses.get(1);
         List<Type> slot0OutputTypes = FunctionReturnDecoder.decode((String) slot0Response.getResult(), V3_SLOT0_FN.getOutputParameters());
-        setSqrtPriceX96((BigInteger) slot0OutputTypes.get(0).getValue());
-        setSqrtPrice(new BigDecimal(getSqrtPriceX96()).divide(new BigDecimal(Q96), 30, RoundingMode.HALF_DOWN));
-        setTick((BigInteger) slot0OutputTypes.get(1).getValue());
+        state.setSqrtPriceX96((BigInteger) slot0OutputTypes.get(0).getValue());
+        state.setSqrtPrice(new BigDecimal(state.getSqrtPriceX96()).divide(new BigDecimal(Q96), 30, RoundingMode.HALF_DOWN));
+        state.setTick((BigInteger) slot0OutputTypes.get(1).getValue());
     }
 
     @Override
     public BigInteger getReserve0() {
-        return new BigDecimal(getLiquidity()).divide(getSqrtPrice(), 30, RoundingMode.HALF_DOWN).toBigInteger();
+        return new BigDecimal(state.getLiquidity()).divide(state.getSqrtPrice(), 30, RoundingMode.HALF_DOWN).toBigInteger();
     }
 
     @Override
     public BigInteger getReserve1() {
-        return new BigDecimal(getLiquidity()).multiply(getSqrtPrice()).toBigInteger();
+        return new BigDecimal(state.getLiquidity()).multiply(state.getSqrtPrice()).toBigInteger();
     }
 
     @Override
     public BigInteger getAmountOutAssumingNoTickCrossings(BigInteger amountIn, boolean ordered) {
         BigInteger amountInAfterFee = FullMath.mulDiv(amountIn, ONE_MILLION_BI.subtract(BigInteger.valueOf(fee)), ONE_MILLION_BI);
-        BigInteger sqrtRatioNextX96 = SqrtPriceMath.getNextSqrtPriceFromInput(getSqrtPriceX96(), getLiquidity(), amountInAfterFee, ordered);
+        BigInteger sqrtRatioNextX96 = SqrtPriceMath.getNextSqrtPriceFromInput(state.getSqrtPriceX96(), state.getLiquidity(), amountInAfterFee, ordered);
 
-        BigInteger trueAmountIn, trueAmountOut;
-        if (ordered) {
-            trueAmountIn = SqrtPriceMath.getAmount0Delta(sqrtRatioNextX96, getSqrtPriceX96(), getLiquidity(), true);
-            trueAmountOut = SqrtPriceMath.getAmount1Delta(sqrtRatioNextX96, getSqrtPriceX96(), getLiquidity(), false);
-        } else {
-            trueAmountIn = SqrtPriceMath.getAmount1Delta(getSqrtPriceX96(), sqrtRatioNextX96, getLiquidity(), true);
-            trueAmountOut = SqrtPriceMath.getAmount0Delta(getSqrtPriceX96(), sqrtRatioNextX96, getLiquidity(), false);
-        }
-        return trueAmountOut;
+        return ordered
+                ? SqrtPriceMath.getAmount1Delta(sqrtRatioNextX96, state.getSqrtPriceX96(), state.getLiquidity(), false)
+                : SqrtPriceMath.getAmount0Delta(state.getSqrtPriceX96(), sqrtRatioNextX96, state.getLiquidity(), false);
     }
 
     @Override
     public BigInteger getAmountInAssumingNoTickCrossings(BigInteger amountOut, boolean ordered) {
-        return ZERO;
+        BigInteger sqrtRatioNextX96 = SqrtPriceMath.getNextSqrtPriceFromOutput(state.getSqrtPriceX96(), state.getLiquidity(), amountOut, ordered);
+
+        BigInteger amountIn = ordered
+                ? SqrtPriceMath.getAmount0Delta(sqrtRatioNextX96, state.getSqrtPriceX96(), state.getLiquidity(), true)
+                : SqrtPriceMath.getAmount1Delta(state.getSqrtPriceX96(), sqrtRatioNextX96, state.getLiquidity(), true);
+
+        return FullMath.mulDivRoundingUp(amountIn, ONE_MILLION_BI, ONE_MILLION_BI.subtract(BigInteger.valueOf(fee)));
     }
 
     @Override
     public BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered) {
-        BigInteger currentTick = getTick();
-        BigInteger currentSqrtPriceX96 = getSqrtPriceX96();
+        BigInteger currentTick = state.getTick();
+        BigInteger currentSqrtPriceX96 = state.getSqrtPriceX96();
         BigInteger amountRemaining = new BigInteger(maxAmount.toString());
         BigInteger inputAmount = BigInteger.valueOf(0);
 
@@ -151,8 +142,8 @@ public class UniswapV3Pool extends Pool {
 
             BigInteger sqrtRatioAtNextTick = TickMath.getSqrtRatioAtTick(nextTick);
             BigInteger amountInToNextTick = ordered
-                    ? SqrtPriceMath.getAmount0Delta(sqrtRatioAtNextTick, currentSqrtPriceX96, getLiquidity(), true)
-                    : SqrtPriceMath.getAmount1Delta(currentSqrtPriceX96, sqrtRatioAtNextTick, getLiquidity(), true);
+                    ? SqrtPriceMath.getAmount0Delta(sqrtRatioAtNextTick, currentSqrtPriceX96, state.getLiquidity(), true)
+                    : SqrtPriceMath.getAmount1Delta(currentSqrtPriceX96, sqrtRatioAtNextTick, state.getLiquidity(), true);
             BigInteger amountInToNextTickPlusFee = FullMath.mulDivRoundingUp(amountInToNextTick, ONE_MILLION_BI, ONE_MILLION_BI.subtract(BigInteger.valueOf(fee)));
 
             if (amountRemaining.compareTo(amountInToNextTickPlusFee) < 0) {
@@ -228,73 +219,5 @@ public class UniswapV3Pool extends Pool {
             }
         }
         return tickBitmap.get(wordPosition);
-    }
-
-    private BigInteger getLiquidity() {
-        return useCache ? cache.liquidity : liquidity;
-    }
-    private BigInteger getSqrtPriceX96() {
-        return useCache ? cache.sqrtPriceX96 : sqrtPriceX96;
-    }
-    private BigDecimal getSqrtPrice() {
-        return useCache ? cache.sqrtPrice : sqrtPrice;
-    }
-    private BigInteger getTick() {
-        return useCache ? cache.tick : tick;
-    }
-    private void setLiquidity(BigInteger liquidity) {
-        if (useCache) {
-            cache.setLiquidity(liquidity);
-            return;
-        }
-        Preconditions.checkState(this.liquidity == null, "Cannot only set value if not initialized.");
-        this.liquidity = liquidity;
-    }
-    private void setSqrtPriceX96(BigInteger sqrtPriceX96) {
-        if (useCache) {
-            cache.setSqrtPriceX96(sqrtPriceX96);
-            return;
-        }
-        Preconditions.checkState(this.sqrtPriceX96 == null, "Cannot only set value if not initialized.");
-        this.sqrtPriceX96 = sqrtPriceX96;
-    }
-    private void setSqrtPrice(BigDecimal sqrtPrice) {
-        if (useCache) {
-            cache.setSqrtPrice(sqrtPrice);
-            return;
-        }
-        Preconditions.checkState(this.sqrtPrice == null, "Cannot only set value if not initialized.");
-        this.sqrtPrice = sqrtPrice;
-    }
-    private void setTick(BigInteger tick) {
-        if (useCache) {
-            cache.setTick(tick);
-            return;
-        }
-        Preconditions.checkState(this.tick == null, "Cannot only set value if not initialized.");
-        this.tick = tick;
-    }
-    @Override
-    public void initializeCache() {
-        cache = SwapCache.builder()
-                .liquidity(liquidity)
-                .sqrtPriceX96(sqrtPriceX96)
-                .sqrtPrice(sqrtPrice)
-                .tick(tick)
-                .build();
-        useCache = true;
-    }
-    @Override
-    public void clearCache() {
-        cache = null;
-        useCache = false;
-    }
-    @Data
-    @Builder
-    private static class SwapCache {
-        private BigInteger liquidity;
-        private BigInteger sqrtPriceX96;
-        private BigDecimal sqrtPrice;
-        private BigInteger tick;
     }
 }

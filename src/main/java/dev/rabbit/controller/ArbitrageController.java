@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.exception.InvalidPubSubMessageException;
+import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.gateway.PubSubOutboundGateway;
 import dev.rabbit.pojo.Path;
@@ -39,17 +40,20 @@ public class ArbitrageController {
     private final PubSubOutboundGateway pubSubOutboundGateway;
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<List<Path>> receiveMessage(@RequestBody Body body) throws IOException {
+    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException, RPCCallFailureException {
         verifyMessageFormat(body);
-        List<Path> paths = arbitrageService.analyze(derivePaths(parseBody(body)));
+        try {
+            arbitrageService.analyze(derivePaths(parseBody(body)));
+            return ResponseEntity.accepted().build();
+        } finally {
+            poolFactory.clearPools();
+        }
 //        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
 //        bundleService.sendBundles(profitablePaths);
 //        //Publish message
 //        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
 //                new MessageHeaders(Collections.emptyMap()));
 //        pubSubOutboundGateway.sendToPubsub(message);
-        SpringContext.getBean(PoolFactory.class).clearPools();
-        return ResponseEntity.ok(paths);
     }
 
     private void verifyMessageFormat(Body body) {

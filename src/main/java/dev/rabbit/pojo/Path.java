@@ -5,6 +5,7 @@ import com.google.cloud.Tuple;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.pool.Pool;
+import dev.rabbit.pool.PoolState;
 import dev.rabbit.record.Tree;
 import dev.rabbit.utils.Wallet;
 import lombok.Getter;
@@ -48,9 +49,8 @@ import static java.math.BigInteger.ZERO;
 @Slf4j
 @Getter
 public class Path implements Comparable<Path> {
-    private static final ObjectMapper mapper = new ObjectMapper();
     private final LinkedList<Trade> trades = new LinkedList<>();
-    private BigInteger optimalTradingVolume;
+    private BigInteger optimalTradingVolume = ZERO;
     private BigInteger[] tradeAmounts;
     private BigInteger profitBeforeGas;
     private BigDecimal profitBeforeGasInEther;
@@ -173,51 +173,76 @@ public class Path implements Comparable<Path> {
         // Determine initial optimal trading amount
         // Input amount is subject to change if ticks are encountered
         BigInteger inputAmount = getOptimalAmountFn.get().toBigInteger();
-        BigInteger inputAmountToEarliestTick = null;
-
         // Sometimes the optimal amount is so small that flooring via toBigInteger() results in 0
         // This path does not contain extractable value
         if (inputAmount.equals(ZERO)) throw new ZeroAmountException();
 
-        // Populate input and outputs from each trade assuming no tick crossings
-        // This computes the initial trade amounts through the path.
-        populateInputAndOutputTradeAmounts(inputAmount);
+        /* A tick crossing changes the state of a pool. This throws off the optimal amount equation.
+            As long as our calculated optimal amount encounters ticks during the swap, we must:
+                1. Determine the earliest point in the trade path where a tick is encountered
+                2. Perform a partial swap up to the tick, and recalculate the state of all the pool reserves
+                3. Keep track of the input amount from the partial swap
+                3. From the new state, recalculate the optimal amount
+                5. Repeat until we complete the full swap. Add up all the input amounts from partial swaps
+                6. Return the final optimal amount of the trade path
+         */
+        while (true) {
+            BigInteger inputAmountToEarliestTick = null;
 
-        // For each trade, determine whether the input amount is exhausted first or if a tick is encountered
-        // If a tick is encountered, we must recalculate the initial input amount into the path to swap up to this tick
-        // After iteration, we must find the earliest point where a tick is encountered and perform a partial swap up to the tick
-        for (int i = 0; i < trades.size(); i++) {
-            Trade trade = trades.get(i);
-            BigInteger ithTradeFullInputAmountOrToFirstTick = trade.getFullInputAmountOrToFirstTick();
+            // Populate input and outputs from each trade assuming no tick crossings
+            // This computes the initial trade amounts through the path.
+            populateInputAndOutputTradeAmounts(inputAmount);
 
-            // If we didn't encounter a tick, then continue
-            if (trade.getAmountIn().equals(ithTradeFullInputAmountOrToFirstTick)) {
-                continue;
+            // For each trade, determine whether the input amount is exhausted first or if a tick is encountered
+            // If a tick is encountered, we must recalculate the initial input amount into the path to swap up to this tick
+            // After iteration, we must find the earliest point where a tick is encountered and perform a partial swap up to the tick
+            for (int i = 0; i < trades.size(); i++) {
+                Trade trade = trades.get(i);
+                BigInteger ithTradeFullInputAmountOrToFirstTick = trade.getFullInputAmountOrToFirstTick();
+
+                // If we didn't encounter a tick, then continue
+                if (trade.getAmountIn().equals(ithTradeFullInputAmountOrToFirstTick)) {
+                    continue;
+                }
+
+                // If we encounter a tick, and it is the first trade, then we already have the initial input required to cross said tick
+                if (i == 0) {
+                    inputAmount = ithTradeFullInputAmountOrToFirstTick;
+                    continue;
+                }
+
+                // If we encounter a tick, and it is not the first trade, then we must recalculate the initial input amount into the path to swap up to this tick
+                BigInteger inputAmountToEarliestTickTemp = ithTradeFullInputAmountOrToFirstTick;
+                // Recalculate trade inputs to derive the initial input for the path to swap to the tick crossing
+                for (int j = i - 1; j >= 0; j--) {
+                    inputAmountToEarliestTickTemp = trades.get(j).getAmountInAssumingNoTickCrossings(inputAmountToEarliestTickTemp);
+                }
+
+                // Assign the new input amount if it is less than what is currently stored.
+                inputAmountToEarliestTick = inputAmountToEarliestTick == null
+                        ? inputAmountToEarliestTickTemp
+                        : inputAmountToEarliestTick.min(inputAmountToEarliestTickTemp);
             }
 
-            // If we encounter a tick, and it is the first trade, then we already have the initial input required to cross said tick
-            if (i == 0) {
-                inputAmount = ithTradeFullInputAmountOrToFirstTick;
-                continue;
+            // If inputAmountToEarliestTick is null, that means no ticks were encountered in the path.
+            if (inputAmountToEarliestTick == null) {
+                optimalTradingVolume = inputAmount;
+                // Clear state cache on all pools
+                trades.forEach(trade -> trade.getPool().getState().clear());
+                return;
             }
 
-            // If we encounter a tick, and it is not the first trade, then we must recalculate the initial input amount into the path to swap up to this tick
-            inputAmountToEarliestTick = ithTradeFullInputAmountOrToFirstTick;
-            // Recalculate trade inputs to derive the initial input for the path to swap to the tick crossing
-            for (int j = i - 1; j >= 0; j--) {
-                inputAmountToEarliestTick = trades.get(j).getAmountInAssumingNoTickCrossings(inputAmountToEarliestTick);
-            }
+            optimalTradingVolume = optimalTradingVolume.add(inputAmountToEarliestTick);
+
+            // Initialize state cache if not already initialized
+            trades.forEach(trade -> {
+                PoolState state = trade.getPool().getState();
+                if (!state.isUseCache()) state.initialize();
+            });
+
+            // Todo
+            // Perform a partial dry run of a swap to the earliest tick
         }
-
-        // If inputAmountToEarliestTick is null, that means no ticks were encountered in the path.
-        if (inputAmountToEarliestTick == null) {
-            optimalTradingVolume = inputAmount;
-            return;
-        }
-
-        // Perform a partial dry run of a swap to the earliest tick
-        trades.forEach(trade -> trade.getPool().in);
-
     }
 
 //    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException, EthPriceRequestFailureException {

@@ -1,10 +1,11 @@
 package dev.rabbit.service;
 
-import dev.rabbit.exception.GetReservesFailureException;
+import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.pool.Pool;
+import dev.rabbit.pool.PoolState;
 import dev.rabbit.spring.SpringContext;
 import dev.rabbit.utils.ValueConverter;
 import dev.rabbit.utils.Wallet;
@@ -45,7 +46,7 @@ public class ArbitrageService {
         return maxBaseFee;
     }
 
-    public List<Path> analyze(List<Path> paths) throws IOException {
+    public List<Path> analyze(List<Path> paths) {
         // Get all data for all involved pools.
         getData();
 
@@ -65,6 +66,7 @@ public class ArbitrageService {
                 return false;
             }
         }).sorted(Collections.reverseOrder()).toList();
+        if (exploitablePaths.isEmpty()) return Collections.emptyList();
 //
 //        int count = 0;
 //        List<Path> profitablePaths = new ArrayList<>();
@@ -98,7 +100,7 @@ public class ArbitrageService {
     }
 
     private void getData() {
-        List<Pool> allPools = new ArrayList<>(SpringContext.getBean(PoolFactory.class).getAllPools());
+        List<Pool<? extends PoolState>> allPools = new ArrayList<>(SpringContext.getBean(PoolFactory.class).getAllPools());
         BatchRequest batchRequest = new BatchRequest(httpService);
 
         for (int i = 0; i < allPools.size(); i++) {
@@ -116,7 +118,7 @@ public class ArbitrageService {
                 allPools.get(entry.getKey()).assignData(entry.getValue());
             }
         } catch (IOException exception) {
-            throw GetReservesFailureException.of(exception);
+            throw RPCCallFailureException.of("Failed to retrieve initial data for pools", exception);
         }
     }
 

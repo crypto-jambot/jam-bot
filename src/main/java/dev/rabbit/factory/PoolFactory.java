@@ -1,6 +1,7 @@
 package dev.rabbit.factory;
 
 import dev.rabbit.pool.Pool;
+import dev.rabbit.pool.PoolState;
 import dev.rabbit.record.Tree;
 import lombok.AllArgsConstructor;
 
@@ -10,18 +11,18 @@ import java.util.Map;
 
 @AllArgsConstructor
 public class PoolFactory {
-    private final Map<String, Class<? extends Pool>> poolTypes;
-    private final Map<String, Pool> pools;
+    private final Map<String, Class<? extends Pool<? extends PoolState>>> poolTypes;
+    private final Map<String, Pool<? extends PoolState>> pools;
 
-    public Pool createPool(Tree.Swap.Exchange exchange) {
-        Class<? extends Pool> poolClass = poolTypes.get(exchange.name());
+    public Pool<? extends PoolState> createPool(Tree.Swap.Exchange exchange) {
+        Class<? extends Pool<? extends PoolState>> poolClass = poolTypes.get(exchange.name());
         if (poolClass == null) {
             throw new IllegalArgumentException("Unsupported protocol type: " + exchange.name());
         }
 
         if (!pools.containsKey(exchange.pool())) {
             try {
-                Pool newPool = poolClass.getConstructor(new Class[] { Tree.Swap.Exchange.class }).newInstance(exchange);
+                Pool<? extends PoolState> newPool = poolClass.getConstructor(new Class[] { Tree.Swap.Exchange.class }).newInstance(exchange);
                 pools.put(exchange.pool(), newPool);
             } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
                 throw new RuntimeException("Failed to create pool", e);
@@ -35,7 +36,7 @@ public class PoolFactory {
         pools.clear();
     }
 
-    public Collection<Pool> getAllPools() {
+    public Collection<Pool<? extends PoolState>> getAllPools() {
         return pools.values();
     }
 }

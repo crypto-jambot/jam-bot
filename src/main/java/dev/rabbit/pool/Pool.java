@@ -12,11 +12,12 @@ import java.util.List;
 
 @Getter
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
-public abstract class Pool {
+public abstract class Pool<T extends PoolState> {
     protected final String exchangeName;
     protected final int fee;
     @EqualsAndHashCode.Include
     protected final String address;
+    protected T state;
 
     protected Pool(Tree.Swap.Exchange exchange) {
         this.exchangeName = exchange.name();
@@ -30,8 +31,6 @@ public abstract class Pool {
     public abstract BigInteger getReserve1();
     public abstract BigInteger getAmountOutAssumingNoTickCrossings(BigInteger amountIn, boolean ordered);
     public abstract BigInteger getAmountInAssumingNoTickCrossings(BigInteger amountOut, boolean ordered);
-    public abstract void initializeCache();
-    public abstract void clearCache();
     public BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered) {
         return maxAmount;
     }
