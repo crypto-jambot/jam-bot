@@ -3,7 +3,7 @@ package dev.rabbit.config;
 import dev.rabbit.exception.PoolClassNotFoundException;
 import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.pool.Pool;
-import dev.rabbit.pool.PoolState;
+import dev.rabbit.pool.State;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,14 +20,14 @@ public class PoolConfiguration {
 
     @Bean
     public PoolFactory poolFactory() {
-        Map<String, Class<? extends Pool<? extends PoolState>>> poolTypes = new HashMap<>();
+        Map<String, Class<? extends Pool<? extends State>>> poolTypes = new HashMap<>();
         for (Map.Entry<String, Map<String, String>> protocol : protocols.entrySet()) {
             String protocolName = protocol.getKey();
             Map<String, String> protocolMap = protocol.getValue();
             String poolClassName = protocolMap.get("poolType");
             try {
                 @SuppressWarnings("unchecked")
-                Class<? extends Pool<? extends PoolState>> poolClass = (Class<? extends Pool<? extends PoolState>>) Class.forName(poolClassName).asSubclass(Pool.class);
+                Class<? extends Pool<? extends State>> poolClass = (Class<? extends Pool<? extends State>>) Class.forName(poolClassName).asSubclass(Pool.class);
                 poolTypes.put(protocolName, poolClass);
             } catch (ClassNotFoundException e) {
                 throw PoolClassNotFoundException.of(poolClassName);

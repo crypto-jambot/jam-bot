@@ -224,8 +224,6 @@ public class Path implements Comparable<Path> {
             // If inputAmountToEarliestTick is null, that means no ticks were encountered in the path.
             if (inputAmountToEarliestTick == null) {
                 optimalTradingVolume = optimalTradingVolume.add(optimalInput);
-                // Clear state cache on all pools
-                trades.forEach(trade -> trade.getPool().getState().clear());
                 return;
             }
 
@@ -234,6 +232,7 @@ public class Path implements Comparable<Path> {
             // Dry run swap
 
             optimalInput = getOptimalAmountFn.get().toBigInteger();
+            if (optimalInput.equals(ZERO)) return;
         }
     }
 

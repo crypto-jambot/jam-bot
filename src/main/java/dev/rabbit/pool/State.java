@@ -6,8 +6,8 @@ import lombok.Getter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
-public abstract class PoolState {
-    public PoolState() {
+public abstract class State {
+    public State() {
         useCache = false;
     }
     @Getter
@@ -16,7 +16,7 @@ public abstract class PoolState {
     public abstract void clear();
 }
 
-class V3State extends PoolState {
+class V3State extends State {
     public V3State() {
         super();
     }
@@ -94,7 +94,7 @@ class V3State extends PoolState {
     }
 }
 
-class V2State extends PoolState {
+class V2State extends State {
     public V2State() {
         super();
     }

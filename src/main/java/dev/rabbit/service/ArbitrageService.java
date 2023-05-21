@@ -5,7 +5,7 @@ import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.pool.Pool;
-import dev.rabbit.pool.PoolState;
+import dev.rabbit.pool.State;
 import dev.rabbit.spring.SpringContext;
 import dev.rabbit.utils.ValueConverter;
 import dev.rabbit.utils.Wallet;
@@ -56,8 +56,8 @@ public class ArbitrageService {
 
         // Run Math to calculate revenue and sort in descending order
         List<Path> exploitablePaths = pathsWithValueExtractable.stream().filter(path -> {
+            path.getTrades().forEach(trade -> trade.getPool().getState().initialize());
             try {
-                path.getTrades().forEach(trade -> trade.getPool().getState().initialize());
                 path.calculateOptimalTradingVolume();
 //                path.calculateRevenue(valueConverter);
 //                path.encodeCallData();
@@ -103,7 +103,7 @@ public class ArbitrageService {
     }
 
     private void getData() {
-        List<Pool<? extends PoolState>> allPools = new ArrayList<>(SpringContext.getBean(PoolFactory.class).getAllPools());
+        List<Pool<? extends State>> allPools = new ArrayList<>(SpringContext.getBean(PoolFactory.class).getAllPools());
         BatchRequest batchRequest = new BatchRequest(httpService);
 
         for (int i = 0; i < allPools.size(); i++) {
