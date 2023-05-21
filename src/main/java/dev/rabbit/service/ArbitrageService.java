@@ -57,13 +57,16 @@ public class ArbitrageService {
         // Run Math to calculate revenue and sort in descending order
         List<Path> exploitablePaths = pathsWithValueExtractable.stream().filter(path -> {
             try {
+                path.getTrades().forEach(trade -> trade.getPool().getState().initialize());
                 path.calculateOptimalTradingVolume();
 //                path.calculateRevenue(valueConverter);
 //                path.encodeCallData();
-                    return true;
+                return true;
             }
             catch (ZeroAmountException exception) {
                 return false;
+            } finally {
+                path.getTrades().forEach(trade -> trade.getPool().getState().clear());
             }
         }).sorted(Collections.reverseOrder()).toList();
         if (exploitablePaths.isEmpty()) return Collections.emptyList();

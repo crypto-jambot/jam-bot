@@ -1,11 +1,9 @@
 package dev.rabbit.pojo;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.Tuple;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.pool.Pool;
-import dev.rabbit.pool.PoolState;
 import dev.rabbit.record.Tree;
 import dev.rabbit.utils.Wallet;
 import lombok.Getter;
@@ -170,12 +168,11 @@ public class Path implements Comparable<Path> {
             return numerator.divide(feeToPercent(fee), MathContext.DECIMAL128);
         };
 
-        // Determine initial optimal trading amount
-        // Input amount is subject to change if ticks are encountered
-        BigInteger inputAmount = getOptimalAmountFn.get().toBigInteger();
+        // Determine initial optimal trading amount. This is subject to change if ticks are encountered
+        BigInteger optimalInput = getOptimalAmountFn.get().toBigInteger();
         // Sometimes the optimal amount is so small that flooring via toBigInteger() results in 0
         // This path does not contain extractable value
-        if (inputAmount.equals(ZERO)) throw new ZeroAmountException();
+        if (optimalInput.equals(ZERO)) throw new ZeroAmountException();
 
         /* A tick crossing changes the state of a pool. This throws off the optimal amount equation.
             As long as our calculated optimal amount encounters ticks during the swap, we must:
@@ -191,7 +188,7 @@ public class Path implements Comparable<Path> {
 
             // Populate input and outputs from each trade assuming no tick crossings
             // This computes the initial trade amounts through the path.
-            populateInputAndOutputTradeAmounts(inputAmount);
+            populateInputAndOutputTradeAmountsNoTicks(optimalInput);
 
             // For each trade, determine whether the input amount is exhausted first or if a tick is encountered
             // If a tick is encountered, we must recalculate the initial input amount into the path to swap up to this tick
@@ -207,7 +204,7 @@ public class Path implements Comparable<Path> {
 
                 // If we encounter a tick, and it is the first trade, then we already have the initial input required to cross said tick
                 if (i == 0) {
-                    inputAmount = ithTradeFullInputAmountOrToFirstTick;
+                    inputAmountToEarliestTick = ithTradeFullInputAmountOrToFirstTick;
                     continue;
                 }
 
@@ -215,7 +212,7 @@ public class Path implements Comparable<Path> {
                 BigInteger inputAmountToEarliestTickTemp = ithTradeFullInputAmountOrToFirstTick;
                 // Recalculate trade inputs to derive the initial input for the path to swap to the tick crossing
                 for (int j = i - 1; j >= 0; j--) {
-                    inputAmountToEarliestTickTemp = trades.get(j).getAmountInAssumingNoTickCrossings(inputAmountToEarliestTickTemp);
+                    inputAmountToEarliestTickTemp = trades.get(j).computeAmountInNoTicks(inputAmountToEarliestTickTemp);
                 }
 
                 // Assign the new input amount if it is less than what is currently stored.
@@ -226,7 +223,7 @@ public class Path implements Comparable<Path> {
 
             // If inputAmountToEarliestTick is null, that means no ticks were encountered in the path.
             if (inputAmountToEarliestTick == null) {
-                optimalTradingVolume = inputAmount;
+                optimalTradingVolume = optimalTradingVolume.add(optimalInput);
                 // Clear state cache on all pools
                 trades.forEach(trade -> trade.getPool().getState().clear());
                 return;
@@ -234,14 +231,9 @@ public class Path implements Comparable<Path> {
 
             optimalTradingVolume = optimalTradingVolume.add(inputAmountToEarliestTick);
 
-            // Initialize state cache if not already initialized
-            trades.forEach(trade -> {
-                PoolState state = trade.getPool().getState();
-                if (!state.isUseCache()) state.initialize();
-            });
+            // Dry run swap
 
-            // Todo
-            // Perform a partial dry run of a swap to the earliest tick
+            optimalInput = getOptimalAmountFn.get().toBigInteger();
         }
     }
 
@@ -356,11 +348,11 @@ public class Path implements Comparable<Path> {
 //        BigDecimal lastSwapOutputReserve = lastTrade.isOrdered() ? lastTradeReserve1 : lastTradeReserve0;
 //        return new BigDecimal[]{lastSwapInputReserve, lastSwapOutputReserve};
 //    }
-    public void populateInputAndOutputTradeAmounts(BigInteger initialAmountIn) {
+    public void populateInputAndOutputTradeAmountsNoTicks(BigInteger initialAmountIn) {
         trades.get(0).setAmountIn(initialAmountIn);
         for (int i = 0; i < trades.size(); i++) {
             Trade trade = trades.get(i);
-            trade.computeAndSetAmountOutAssumingNoTickCrossings();
+            trade.computeAndSetAmountOutNoTicks();
             if (i != trades.size() - 1) trades.get(i + 1).setAmountIn(trade.getAmountOut());
         }
     }

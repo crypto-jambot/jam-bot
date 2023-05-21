@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.lang.reflect.Field;
 import java.math.BigInteger;
 
 @Builder
@@ -33,16 +34,24 @@ public class Trade {
         return pool.getFullInputAmountOrToFirstTick(amountIn, ordered);
     }
 
-    public void computeAndSetAmountOutAssumingNoTickCrossings() {
+    public void computeAndSetAmountOutNoTicks() {
         Preconditions.checkState(amountIn != null, "amountIn field is null");
         amountOut = pool.getAmountOutAssumingNoTickCrossings(amountIn, ordered);
     }
 
-    public BigInteger getAmountOutAssumingNoTickCrossings(BigInteger amountIn) {
+    public BigInteger computeAmountOutNoTicks(BigInteger amountIn) {
         return pool.getAmountOutAssumingNoTickCrossings(amountIn, ordered);
     }
 
-    public BigInteger getAmountInAssumingNoTickCrossings(BigInteger amountOut) {
+    public BigInteger computeAmountInNoTicks(BigInteger amountOut) {
+        return pool.getAmountInAssumingNoTickCrossings(amountOut, ordered);
+    }
+
+    public BigInteger computeAmountOutWithTicks(BigInteger amountIn) {
+        return pool.getAmountOutAssumingNoTickCrossings(amountIn, ordered);
+    }
+
+    public BigInteger computeAmountInWithTicks(BigInteger amountOut) {
         return pool.getAmountInAssumingNoTickCrossings(amountOut, ordered);
     }
 
