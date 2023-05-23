@@ -5,6 +5,9 @@ import lombok.Getter;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
+
+import static dev.rabbit.utils.Constants.Q96;
 
 public abstract class State {
     public State() {
@@ -71,18 +74,12 @@ class V3State extends State {
     void setSqrtPriceX96(BigInteger sqrtPriceX96) {
         if (useCache) {
             mutableSqrtPriceX96 = sqrtPriceX96;
+            mutableSqrtPrice = new BigDecimal(mutableSqrtPriceX96).divide(new BigDecimal(Q96), 30, RoundingMode.HALF_DOWN);
             return;
         }
         Preconditions.checkState(this.sqrtPriceX96 == null, "Cannot only set value if not initialized.");
         this.sqrtPriceX96 = sqrtPriceX96;
-    }
-    void setSqrtPrice(BigDecimal sqrtPrice) {
-        if (useCache) {
-            mutableSqrtPrice = sqrtPrice;
-            return;
-        }
-        Preconditions.checkState(this.sqrtPrice == null, "Cannot only set value if not initialized.");
-        this.sqrtPrice = sqrtPrice;
+        sqrtPrice = new BigDecimal(this.sqrtPriceX96).divide(new BigDecimal(Q96), 30, RoundingMode.HALF_DOWN);
     }
     void setTick(BigInteger tick) {
         if (useCache) {

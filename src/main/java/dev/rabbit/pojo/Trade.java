@@ -3,11 +3,11 @@ package dev.rabbit.pojo;
 import com.google.cloud.Tuple;
 import com.google.common.base.Preconditions;
 import dev.rabbit.pool.Pool;
+import dev.rabbit.pool.State;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.lang.reflect.Field;
 import java.math.BigInteger;
 
 @Builder
@@ -16,7 +16,7 @@ public class Trade {
     private final Token start;
     private final Token end;
     private final boolean ordered;
-    private final Pool pool;
+    private final Pool<? extends State> pool;
     @Setter
     private BigInteger amountIn;
     @Setter
@@ -36,23 +36,27 @@ public class Trade {
 
     public void computeAndSetAmountOutNoTicks() {
         Preconditions.checkState(amountIn != null, "amountIn field is null");
-        amountOut = pool.getAmountOutAssumingNoTickCrossings(amountIn, ordered);
+        amountOut = computeAmountOutNoTicks(amountIn);
     }
 
     public BigInteger computeAmountOutNoTicks(BigInteger amountIn) {
-        return pool.getAmountOutAssumingNoTickCrossings(amountIn, ordered);
+        return pool.computeAmountOutNoTicks(amountIn, ordered);
     }
 
     public BigInteger computeAmountInNoTicks(BigInteger amountOut) {
-        return pool.getAmountInAssumingNoTickCrossings(amountOut, ordered);
+        return pool.computeAmountInNoTicks(amountOut, ordered);
     }
 
     public BigInteger computeAmountOutWithTicks(BigInteger amountIn) {
-        return pool.getAmountOutAssumingNoTickCrossings(amountIn, ordered);
+        return pool.computeAmountOutWithTicks(amountIn, ordered);
     }
 
     public BigInteger computeAmountInWithTicks(BigInteger amountOut) {
-        return pool.getAmountInAssumingNoTickCrossings(amountOut, ordered);
+        return pool.computeAmountInWithTicks(amountOut, ordered);
+    }
+
+    public BigInteger swap(BigInteger amountIn) {
+        return pool.swap(amountIn, ordered);
     }
 
     @Override

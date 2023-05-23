@@ -229,10 +229,25 @@ public class Path implements Comparable<Path> {
 
             optimalTradingVolume = optimalTradingVolume.add(inputAmountToEarliestTick);
 
-            // Dry run swap
+            swap(inputAmountToEarliestTick);
 
             optimalInput = getOptimalAmountFn.get().toBigInteger();
             if (optimalInput.equals(ZERO)) return;
+        }
+    }
+
+    private void populateInputAndOutputTradeAmountsNoTicks(BigInteger initialAmountIn) {
+        trades.get(0).setAmountIn(initialAmountIn);
+        for (int i = 0; i < trades.size(); i++) {
+            Trade trade = trades.get(i);
+            trade.computeAndSetAmountOutNoTicks();
+            if (i != trades.size() - 1) trades.get(i + 1).setAmountIn(trade.getAmountOut());
+        }
+    }
+
+    private void swap(BigInteger amountIn) {
+        for (Trade trade : trades) {
+            amountIn = trade.swap(amountIn);
         }
     }
 
@@ -347,14 +362,6 @@ public class Path implements Comparable<Path> {
 //        BigDecimal lastSwapOutputReserve = lastTrade.isOrdered() ? lastTradeReserve1 : lastTradeReserve0;
 //        return new BigDecimal[]{lastSwapInputReserve, lastSwapOutputReserve};
 //    }
-    public void populateInputAndOutputTradeAmountsNoTicks(BigInteger initialAmountIn) {
-        trades.get(0).setAmountIn(initialAmountIn);
-        for (int i = 0; i < trades.size(); i++) {
-            Trade trade = trades.get(i);
-            trade.computeAndSetAmountOutNoTicks();
-            if (i != trades.size() - 1) trades.get(i + 1).setAmountIn(trade.getAmountOut());
-        }
-    }
 
     private void checkInputs(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountException {
         if (ObjectUtils.isEmpty(amountIn) ||

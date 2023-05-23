@@ -60,7 +60,7 @@ public class UniswapV2Pool extends Pool<V2State> {
     }
 
     @Override
-    public BigInteger getAmountOutAssumingNoTickCrossings(BigInteger amountIn, boolean ordered) {
+    public BigInteger computeAmountOutNoTicks(BigInteger amountIn, boolean ordered) {
         BigInteger reserveIn = ordered ? getReserve0() : getReserve1();
         BigInteger reserveOut = ordered ? getReserve1() : getReserve0();
         BigInteger amountInWithFee = amountIn.multiply(BigInteger.valueOf(10000 - (fee/100)));
@@ -70,11 +70,39 @@ public class UniswapV2Pool extends Pool<V2State> {
     }
 
     @Override
-    public BigInteger getAmountInAssumingNoTickCrossings(BigInteger amountOut, boolean ordered) {
+    public BigInteger computeAmountInNoTicks(BigInteger amountOut, boolean ordered) {
         BigInteger reserveIn = ordered ? getReserve0() : getReserve1();
         BigInteger reserveOut = ordered ? getReserve1() : getReserve0();
         BigInteger numerator = reserveIn.multiply(amountOut).multiply(BigInteger.valueOf(10000));
         BigInteger denominator = reserveOut.subtract(amountOut).multiply(BigInteger.valueOf(10000 - (fee/100)));
         return numerator.divide(denominator).add(ONE);
+    }
+
+    @Override
+    public BigInteger computeAmountOutWithTicks(BigInteger amountIn, boolean ordered) {
+        return computeAmountOutNoTicks(amountIn, ordered);
+    }
+
+    @Override
+    public BigInteger computeAmountInWithTicks(BigInteger amountOut, boolean ordered) {
+        return computeAmountInNoTicks(amountOut, ordered);
+    }
+
+    @Override
+    public BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered) {
+        return maxAmount;
+    }
+
+    @Override
+    public BigInteger swap(BigInteger amountIn, boolean ordered) {
+        BigInteger amountOut = computeAmountOutNoTicks(amountIn, ordered);
+        if (ordered) {
+            state.setReserve0(state.getReserve0().add(amountIn));
+            state.setReserve1(state.getReserve1().subtract(amountOut));
+        } else {
+            state.setReserve1(state.getReserve1().add(amountIn));
+            state.setReserve0(state.getReserve0().subtract(amountOut));
+        }
+        return amountOut;
     }
 }

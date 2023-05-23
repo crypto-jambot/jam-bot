@@ -29,9 +29,10 @@ public abstract class Pool<T extends State> {
     public abstract void assignData(List<Response<?>> responses);
     public abstract BigInteger getReserve0();
     public abstract BigInteger getReserve1();
-    public abstract BigInteger getAmountOutAssumingNoTickCrossings(BigInteger amountIn, boolean ordered);
-    public abstract BigInteger getAmountInAssumingNoTickCrossings(BigInteger amountOut, boolean ordered);
-    public BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered) {
-        return maxAmount;
-    }
+    public abstract BigInteger computeAmountOutNoTicks(BigInteger amountIn, boolean ordered);
+    public abstract BigInteger computeAmountInNoTicks(BigInteger amountOut, boolean ordered);
+    public abstract BigInteger computeAmountOutWithTicks(BigInteger amountIn, boolean ordered);
+    public abstract BigInteger computeAmountInWithTicks(BigInteger amountOut, boolean ordered);
+    public abstract BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered);
+    public abstract BigInteger swap(BigInteger amountIn, boolean ordered);
 }
