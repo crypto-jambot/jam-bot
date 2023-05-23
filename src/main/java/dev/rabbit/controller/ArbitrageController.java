@@ -1,7 +1,6 @@
 package dev.rabbit.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.exception.InvalidPubSubMessageException;
@@ -9,11 +8,12 @@ import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.gateway.PubSubOutboundGateway;
 import dev.rabbit.pojo.Path;
+import dev.rabbit.pojo.Trees;
 import dev.rabbit.record.Body;
 import dev.rabbit.record.Tree;
 import dev.rabbit.service.ArbitrageService;
 import dev.rabbit.service.BundleService;
-import dev.rabbit.spring.SpringContext;
+import dev.rabbit.service.MongoService;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -38,16 +37,22 @@ public class ArbitrageController {
     private final ArbitrageService arbitrageService;
     private final BundleService bundleService;
     private final PubSubOutboundGateway pubSubOutboundGateway;
+    private final MongoService mongoService;
+
 
     @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException, RPCCallFailureException {
+    public ResponseEntity<List<Tree>> receiveMessage(@RequestBody Body body) throws JsonProcessingException,
+            RPCCallFailureException {
         verifyMessageFormat(body);
-        try {
-            arbitrageService.analyze(derivePaths(parseBody(body)));
-            return ResponseEntity.accepted().build();
-        } finally {
-            poolFactory.clearPools();
-        }
+        List<Tree> trees = parseBody(body);
+        return ResponseEntity.ok(trees);
+//        try {
+//            arbitrageService.analyze(derivePaths(parseBody(body)));
+//            return ResponseEntity.accepted().build();
+//        }
+//        finally {
+//            poolFactory.clearPools();
+//        }
 //        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
 //        bundleService.sendBundles(profitablePaths);
 //        //Publish message
@@ -69,9 +74,9 @@ public class ArbitrageController {
 
     private List<Tree> parseBody(Body body) throws JsonProcessingException {
         String messageData = new String(Base64.getDecoder().decode(body.message().data()));
-        JsonNode treeListNode = mapper.readTree(messageData).get("trees");
-        return mapper.readValue(treeListNode.toString(), new TypeReference<>() {
-        });
+        JsonNode root = mapper.readTree(messageData);
+        Trees trees = mongoService.pullTrees(root.get("id").asText(), root.get("ordered").asText());
+        return trees.getTrees();
     }
 
     private List<Path> derivePaths(List<Tree> trees) {
