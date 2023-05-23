@@ -48,6 +48,9 @@ defi:
     uniswapV3:
       poolType: dev.rabbit.pool.UniswapV3Pool
 spring:
+  data:
+    mongodb:
+      database: ${DATABASE:test}
   cache:
     cache-names: "token"
   cloud:
@@ -55,6 +58,11 @@ spring:
       pubsub:
         publisher:
           executor-threads: 10
+mongo:
+  user: jam
+  projectId: crypto-351521
+  mongoKey: mongo-password
+  url: mongodb+srv://${DB_USER:test}:%s@${CLUSTER_URL:test.test.test}/?retryWrites=true&w=majority
 pubsub:
   topic: projects/crypto-351521/topics/transactions
 server:
