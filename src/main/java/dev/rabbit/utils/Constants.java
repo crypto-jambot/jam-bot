@@ -41,7 +41,7 @@ public class Constants {
 
     public static final String NULL_ADDRESS = "0x0000000000000000000000000000000000000000";
 //    public static final String DEPLOYER_ADDRESS = "0x3BfFe20e72b0c90752EbBEcBd1805e8b25ef35F5";
-    public static final String DEPLOYER_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+    public static final String DEPLOYER_ADDRESS = "0x3BfFe20e72b0c90752EbBEcBd1805e8b25ef35F5";
     /**
      * Old Contract used for only uniswap v2 pools
      */
@@ -49,7 +49,7 @@ public class Constants {
     /**
      * Latest Contract with support for Uniswap V3
      */
-    public static final Address JAM_BOT_V3_ADDRESS = new Address("0x9D3DA37d36BB0B825CD319ed129c2872b893f538");
+    public static final Address JAM_BOT_V3_ADDRESS = new Address("0x553c331A4554d7b071c06826fF24ce14985f00D9");
     public static final String WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
     public static final String DAI_ADDRESS = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
     public static final String USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";

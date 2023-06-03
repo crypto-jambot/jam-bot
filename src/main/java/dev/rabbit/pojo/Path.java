@@ -346,27 +346,22 @@ public class Path implements Comparable<Path> {
         callData = Numeric.hexStringToByteArray(encoder.encodeFunction(lastSwapFn));
     }
 
-    public void simulate(boolean testing) throws GasEstimationFailureException {
+    public void simulate() throws GasEstimationFailureException {
         Function JAM_EXECUTE_TRADE_FN = getJamExecuteTradeFn(
                 trades.get(0).getStart().getAddress(),
                 trades.get(trades.size() - 1).getPool().getAddress(),
                 callData);
         Transaction transaction = Transaction.createEthCallTransaction(DEPLOYER_ADDRESS, JAM_BOT_V3_ADDRESS.toString(), FunctionEncoder.encode(JAM_EXECUTE_TRADE_FN));
-        if (!testing) {
-            EthEstimateGas response = null;
-            try {
-                response = SpringContext.getBean(Web3j.class).ethEstimateGas(transaction).send();
-                if (!ObjectUtils.isEmpty(response.getError())) {
-                    throw GasEstimationFailureException.of(response.getError().getMessage());
-                }
-                // Usually the real amount of gas used is slightly less than estimated
-                System.out.println(Numeric.toHexString(callData));
-                gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
-            } catch (IOException exception) {
-                throw GasEstimationFailureException.of(exception);
+        EthEstimateGas response = null;
+        try {
+            response = SpringContext.getBean(Web3j.class).ethEstimateGas(transaction).send();
+            if (!ObjectUtils.isEmpty(response.getError())) {
+                throw GasEstimationFailureException.of(response.getError().getMessage());
             }
-        } else {
-            gasUsed = BigInteger.valueOf(250000);
+            // Usually the real amount of gas used is slightly less than estimated
+            gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
+        } catch (IOException exception) {
+            throw GasEstimationFailureException.of(exception);
         }
 
         netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));

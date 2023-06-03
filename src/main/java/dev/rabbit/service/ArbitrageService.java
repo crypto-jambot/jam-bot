@@ -80,23 +80,26 @@ public class ArbitrageService {
 
         if (exploitablePaths.isEmpty()) return Collections.emptyList();
 
-        int count = 0;
-        List<Path> profitablePaths = new ArrayList<>();
+        exploitablePaths = exploitablePaths.subList(0, 300);
+
         BigInteger baseFeePerGas = getBaseFeePerGas();
         BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas);
+
+        int count = 0;
+        List<Path> profitablePaths = new ArrayList<>();
         for (Path path : exploitablePaths) {
             path.setBaseFeePerGas(baseFeePerGas);
             path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
-            if (count >= 500) break;
+            if (count >= 10) break;
             try {
-                path.simulate(false);
+                path.simulate();
 //                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
                 count++;
                 System.out.println(count);
                 profitablePaths.add(path);
             }
             catch (GasEstimationFailureException exception) {
-//                System.out.println(exception.getMessage());
+                System.out.println(exception.getMessage());
             }
         }
         if (profitablePaths.isEmpty()) return Collections.emptyList();
@@ -104,11 +107,8 @@ public class ArbitrageService {
 
         GasEstimationFailureException.errors.forEach((key, value) -> System.out.printf("Error: %s | Occurrences: %d\n", key, value));
 
-        for (Path path : profitablePaths) {
-            path.buildSignedTransaction();
-        }
+        profitablePaths.parallelStream().forEach(Path::buildSignedTransaction);
 
-        profitablePaths.sort(Collections.reverseOrder());
         System.out.println("Total Number of Paths: " + paths.size());
         System.out.println("Total Number of Valuable Extractable Paths: " + pathsWithValueExtractable.size());
         System.out.println("Total Number of Exploitable Paths: " + exploitablePaths.size());
