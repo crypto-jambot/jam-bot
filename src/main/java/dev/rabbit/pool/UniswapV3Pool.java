@@ -13,13 +13,21 @@ import dev.rabbit.utils.v3.TickMath;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.TypeReference;
+import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Bool;
+import org.web3j.abi.datatypes.DynamicBytes;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.Type;
+import org.web3j.abi.datatypes.generated.Int128;
+import org.web3j.abi.datatypes.generated.Int16;
 import org.web3j.abi.datatypes.generated.Int24;
+import org.web3j.abi.datatypes.generated.Int256;
+import org.web3j.abi.datatypes.generated.Int56;
 import org.web3j.abi.datatypes.generated.Uint128;
 import org.web3j.abi.datatypes.generated.Uint16;
 import org.web3j.abi.datatypes.generated.Uint160;
+import org.web3j.abi.datatypes.generated.Uint256;
+import org.web3j.abi.datatypes.generated.Uint32;
 import org.web3j.abi.datatypes.generated.Uint8;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
@@ -32,18 +40,20 @@ import org.web3j.tx.gas.StaticGasProvider;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.math.RoundingMode;
-import java.util.HashMap;
+import java.math.MathContext;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
+import static dev.rabbit.utils.Constants.MAX_SQRT_RATIO;
 import static dev.rabbit.utils.Constants.MAX_TICK;
+import static dev.rabbit.utils.Constants.MIN_SQRT_RATIO;
 import static dev.rabbit.utils.Constants.MIN_TICK;
 import static dev.rabbit.utils.Constants.ONE_MILLION_BI;
 import static dev.rabbit.utils.v3.BitMath.leastSignificantBit;
 import static dev.rabbit.utils.v3.BitMath.mostSignificantBit;
 import static dev.rabbit.utils.Constants.NULL_ADDRESS;
-import static dev.rabbit.utils.Constants.Q96;
 import static java.math.BigInteger.ONE;
 import static java.math.BigInteger.ZERO;
 
@@ -51,7 +61,7 @@ public class UniswapV3Pool extends Pool<V3State> {
 
     private final IUniswapV3Pool contract;
     private final int tickSpacing;
-    private final Map<BigInteger, BigInteger> tickBitmap = new HashMap<>();
+    private final Map<BigInteger, BigInteger> tickBitmap = new ConcurrentHashMap<>();
 
     /**
      * <h2>This map stores information for each individual tick.
@@ -78,7 +88,7 @@ public class UniswapV3Pool extends Pool<V3State> {
      *   fresh stores when crossing newly initialized ticks.
      * </ul>
      */
-    private final Map<BigInteger, Tuple8<BigInteger, BigInteger, BigInteger, BigInteger, BigInteger, BigInteger, BigInteger, Boolean>> ticks = new HashMap<>();
+    private final Map<BigInteger, Tuple8<BigInteger, BigInteger, BigInteger, BigInteger, BigInteger, BigInteger, BigInteger, Boolean>> ticks = new ConcurrentHashMap<>();
     public static final Function V3_LIQUIDITY_FN = new Function(IUniswapV3Pool.FUNC_LIQUIDITY, List.of(), List.of(new TypeReference<Uint128>() {}));
     public static final String V3_LIQUIDITY_ENCODED_FN = FunctionEncoder.encode(V3_LIQUIDITY_FN);
     public static final Function V3_SLOT0_FN = new Function(IUniswapV3Pool.FUNC_SLOT0, List.of(), List.of(
@@ -100,10 +110,24 @@ public class UniswapV3Pool extends Pool<V3State> {
 
     @Override
     public List<Request<?, EthCall>> getRequestsForData() {
+        if (state.getTick() != null) return null;
         Web3j web3j = SpringContext.getBean(Web3j.class);
         return List.of(
                 web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, V3_LIQUIDITY_ENCODED_FN), DefaultBlockParameterName.LATEST),
                 web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, V3_SLOT0_ENCODED_FN), DefaultBlockParameterName.LATEST));
+    }
+
+    @Override
+    public List<Request<?, EthCall>> getSecondaryRequestsForData() {
+        Web3j web3j = SpringContext.getBean(Web3j.class);
+        BigInteger currentWordPosition = position(state.getTick()).x();
+        return List.of(
+                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition)), DefaultBlockParameterName.LATEST),
+                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.add(ONE))), DefaultBlockParameterName.LATEST),
+                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.subtract(ONE))), DefaultBlockParameterName.LATEST));
+//                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3TickEncodedFn(state.getTick())), DefaultBlockParameterName.LATEST));
+//                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.add(TWO))), DefaultBlockParameterName.LATEST),
+//                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.subtract(TWO))), DefaultBlockParameterName.LATEST));
     }
 
     @Override
@@ -119,8 +143,25 @@ public class UniswapV3Pool extends Pool<V3State> {
     }
 
     @Override
+    public void assignSecondaryData(List<Response<?>> responses) {
+        BigInteger currentWordPosition = position(state.getTick()).x();
+
+        List<Type> bitmapResponse0OutputTypes = FunctionReturnDecoder.decode((String) responses.get(0).getResult(), getV3BitmapValueFn(currentWordPosition).getOutputParameters());
+        List<Type> bitmapResponse1OutputTypes = FunctionReturnDecoder.decode((String) responses.get(1).getResult(), getV3BitmapValueFn(currentWordPosition.add(ONE)).getOutputParameters());
+        List<Type> bitmapResponse2OutputTypes = FunctionReturnDecoder.decode((String) responses.get(2).getResult(), getV3BitmapValueFn(currentWordPosition.subtract(ONE)).getOutputParameters());
+//        List<Type> tickResponseOutputTypes = FunctionReturnDecoder.decode((String) responses.get(3).getResult(), getV3TickFn(state.getTick()).getOutputParameters());
+//        List<Type> bitmapResponse4OutputTypes = FunctionReturnDecoder.decode((String) responses.get(4).getResult(), getV3BitmapValueFn(currentWordPosition.subtract(TWO)).getOutputParameters());
+
+        tickBitmap.put(currentWordPosition, (BigInteger) bitmapResponse0OutputTypes.get(0).getValue());
+        tickBitmap.put(currentWordPosition.add(ONE), (BigInteger) bitmapResponse1OutputTypes.get(0).getValue());
+        tickBitmap.put(currentWordPosition.subtract(ONE), (BigInteger) bitmapResponse2OutputTypes.get(0).getValue());
+//        ticks.put(state.getTick(), new Tuple8<>((BigInteger) tickResponseOutputTypes.get(0).getValue(), (BigInteger) tickResponseOutputTypes.get(1).getValue(), (BigInteger) tickResponseOutputTypes.get(2).getValue(), (BigInteger) tickResponseOutputTypes.get(3).getValue(), (BigInteger) tickResponseOutputTypes.get(4).getValue(), (BigInteger) tickResponseOutputTypes.get(5).getValue(), (BigInteger) tickResponseOutputTypes.get(6).getValue(), (Boolean) tickResponseOutputTypes.get(7).getValue()));
+//        tickBitmap.put(currentWordPosition.subtract(TWO), (BigInteger) bitmapResponse4OutputTypes.get(0).getValue());
+    }
+
+    @Override
     public BigInteger getReserve0() {
-        return new BigDecimal(state.getLiquidity()).divide(state.getSqrtPrice(), 30, RoundingMode.HALF_DOWN).toBigInteger();
+        return new BigDecimal(state.getLiquidity()).divide(state.getSqrtPrice(), MathContext.DECIMAL128).toBigInteger();
     }
 
     @Override
@@ -151,19 +192,14 @@ public class UniswapV3Pool extends Pool<V3State> {
 
     @Override
     public BigInteger computeAmountOutWithTicks(BigInteger amountIn, boolean ordered) {
-        return null;
-    }
-
-    @Override
-    public BigInteger computeAmountInWithTicks(BigInteger amountOut, boolean ordered) {
-        return null;
+        return swap(amountIn, ordered, false);
     }
 
     @Override
     public BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered) {
         BigInteger currentTick = state.getTick();
         BigInteger currentSqrtPriceX96 = state.getSqrtPriceX96();
-        BigInteger amountRemaining = new BigInteger(maxAmount.toString());
+        BigInteger amountRemaining = maxAmount;
         BigInteger inputAmount = BigInteger.valueOf(0);
 
         while (true) {
@@ -194,20 +230,20 @@ public class UniswapV3Pool extends Pool<V3State> {
 
             inputAmount = inputAmount.add(amountInToNextTickPlusFee);
             amountRemaining = amountRemaining.subtract(amountInToNextTickPlusFee);
-            currentTick = nextTick;
+            currentTick = ordered ? nextTick.subtract(ONE) : nextTick;
             currentSqrtPriceX96 = sqrtRatioAtNextTick;
         }
     }
 
     @Override
-    public BigInteger swap(BigInteger amountIn, boolean ordered) {
+    public BigInteger swap(BigInteger amountIn, boolean ordered, boolean updateState) {
         BigInteger amountRemaining = amountIn;
         BigInteger amountCalculated = ZERO;
         BigInteger currentLiquidity = state.getLiquidity();
         BigInteger currentTick = state.getTick();
         BigInteger currentSqrtPriceX96 = state.getSqrtPriceX96();
 
-        while (amountRemaining.compareTo(ZERO) > 0) {
+        while (amountRemaining.compareTo(ZERO) > 0 && currentTick.compareTo(MAX_TICK) < 0 && currentTick.compareTo(MIN_TICK) > 0 && !currentLiquidity.equals(ZERO)) {
             BigInteger sqrtPriceStartX96 = currentSqrtPriceX96;
             Tuple<BigInteger, Boolean> next = nextInitializedTickWithinOneWord(ordered, currentTick);
             BigInteger nextTick = next.x();
@@ -242,10 +278,29 @@ public class UniswapV3Pool extends Pool<V3State> {
                 currentTick = TickMath.getTickAtSqrtRatio(currentSqrtPriceX96);
             }
         }
-        state.setTick(currentTick);
-        state.setLiquidity(currentLiquidity);
-        state.setSqrtPriceX96(currentSqrtPriceX96);
+        if (updateState) {
+            state.setTick(currentTick);
+            state.setLiquidity(currentLiquidity);
+            state.setSqrtPriceX96(currentSqrtPriceX96);
+        }
         return amountCalculated.negate();
+    }
+
+    @Override
+    public Function getSwapFn(Address recipient, boolean ordered, BigInteger amountIn, BigInteger amountOut, byte[] bytes) {
+        return getSwapFn(recipient, ordered, amountIn, bytes);
+    }
+
+    public Function getSwapFn(Address recipient, boolean ordered, BigInteger amountIn, byte[] bytes) {
+        return new Function(
+                IUniswapV3Pool.FUNC_SWAP,
+                List.of(
+                        recipient,
+                        new Bool(ordered),
+                        new Int256(amountIn),
+                        ordered ? new Uint160(MIN_SQRT_RATIO.add(ONE)) : new Uint160(MAX_SQRT_RATIO.subtract(ONE)),
+                        new DynamicBytes(bytes)),
+                Collections.emptyList());
     }
 
     private Tuple<BigInteger, Boolean> nextInitializedTickWithinOneWord(boolean lte, BigInteger tick) {
@@ -345,6 +400,27 @@ public class UniswapV3Pool extends Pool<V3State> {
     }
     private BigInteger crossTicks(BigInteger nextTick) {
         return getTick(nextTick).component2();
+    }
+    private Function getV3BitmapValueFn(BigInteger wordPosition) {
+        return new Function(IUniswapV3Pool.FUNC_TICKBITMAP, List.of(new Int16(wordPosition)), List.of(new TypeReference<Uint256>() {}));
+    }
+    private String getV3BitmapValueEncodedFn(BigInteger wordPosition) {
+        return FunctionEncoder.encode(getV3BitmapValueFn(wordPosition));
+    }
+
+    private Function getV3TickFn(BigInteger tick) {
+        return new Function(IUniswapV3Pool.FUNC_TICKS, List.of(new Int24(tick)), List.of(new TypeReference<Uint128>() {
+        }, new TypeReference<Int128>() {
+        }, new TypeReference<Uint256>() {
+        }, new TypeReference<Uint256>() {
+        }, new TypeReference<Int56>() {
+        }, new TypeReference<Uint160>() {
+        }, new TypeReference<Uint32>() {
+        }, new TypeReference<Bool>() {
+        }));
+    }
+    private String getV3TickEncodedFn(BigInteger tick) {
+        return FunctionEncoder.encode(getV3TickFn(tick));
     }
 }
 record SwapStep(BigInteger sqrtRatioNextX96, BigInteger amountIn, BigInteger amountOut, BigInteger feeAmount) {

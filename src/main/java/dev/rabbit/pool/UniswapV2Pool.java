@@ -1,14 +1,19 @@
 package dev.rabbit.pool;
 
+import com.google.common.base.Preconditions;
 import dev.rabbit.generated.IUniswapV2Pair;
+import dev.rabbit.generated.UniswapV2Pair;
 import dev.rabbit.record.Tree;
 import dev.rabbit.spring.SpringContext;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.TypeReference;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.DynamicBytes;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.Type;
 import org.web3j.abi.datatypes.generated.Uint112;
+import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.abi.datatypes.generated.Uint32;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
@@ -18,10 +23,12 @@ import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.EthCall;
 
 import java.math.BigInteger;
+import java.util.Collections;
 import java.util.List;
 
 import static dev.rabbit.utils.Constants.NULL_ADDRESS;
 import static java.math.BigInteger.ONE;
+import static java.math.BigInteger.ZERO;
 
 public class UniswapV2Pool extends Pool<V2State> {
     public static final Function V2_GET_RESERVES_FN = new Function(IUniswapV2Pair.FUNC_GETRESERVES, List.of(), List.of(
@@ -39,7 +46,14 @@ public class UniswapV2Pool extends Pool<V2State> {
     public List<Request<?, EthCall>> getRequestsForData() {
         Web3j web3j = SpringContext.getBean(Web3j.class);
         return List.of(web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, V2_GET_RESERVES_ENCODED_FN), DefaultBlockParameterName.LATEST));
-    };
+    }
+
+    @Override
+    public List<Request<?, EthCall>> getSecondaryRequestsForData() {
+        return null;
+    }
+
+    ;
     @Override
     public void assignData(List<Response<?>> responses) {
         responses.forEach(response -> {
@@ -47,6 +61,11 @@ public class UniswapV2Pool extends Pool<V2State> {
             state.setReserve0((BigInteger) type.get(0).getValue());
             state.setReserve1((BigInteger) type.get(1).getValue());
         });
+    }
+
+    @Override
+    public void assignSecondaryData(List<Response<?>> responses) {
+        // No logic
     }
 
     @Override
@@ -84,18 +103,14 @@ public class UniswapV2Pool extends Pool<V2State> {
     }
 
     @Override
-    public BigInteger computeAmountInWithTicks(BigInteger amountOut, boolean ordered) {
-        return computeAmountInNoTicks(amountOut, ordered);
-    }
-
-    @Override
     public BigInteger getFullInputAmountOrToFirstTick(BigInteger maxAmount, boolean ordered) {
         return maxAmount;
     }
 
     @Override
-    public BigInteger swap(BigInteger amountIn, boolean ordered) {
+    public BigInteger swap(BigInteger amountIn, boolean ordered, boolean updateState) {
         BigInteger amountOut = computeAmountOutNoTicks(amountIn, ordered);
+        if (!updateState) return amountOut;
         if (ordered) {
             state.setReserve0(state.getReserve0().add(amountIn));
             state.setReserve1(state.getReserve1().subtract(amountOut));
@@ -105,4 +120,16 @@ public class UniswapV2Pool extends Pool<V2State> {
         }
         return amountOut;
     }
+
+    @Override
+    public Function getSwapFn(Address recipient, boolean ordered, BigInteger amountIn, BigInteger amountOut, byte[] bytes) {
+        return getSwapFn(ordered, amountOut, recipient, bytes);
+    }
+
+    public Function getSwapFn(boolean ordered, BigInteger amountOut, Address to, byte[] bytes) {
+        return ordered
+                ? new Function(IUniswapV2Pair.FUNC_SWAP, List.of(new Uint256(ZERO), new Uint256(amountOut), to, new DynamicBytes(bytes)), Collections.emptyList())
+                : new Function(IUniswapV2Pair.FUNC_SWAP, List.of(new Uint256(amountOut), new Uint256(ZERO), to, new DynamicBytes(bytes)), Collections.emptyList());
+    }
+
 }

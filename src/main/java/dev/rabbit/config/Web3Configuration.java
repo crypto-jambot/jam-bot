@@ -21,7 +21,8 @@ public class Web3Configuration {
 
     @Bean
     public HttpService httpService() {
-        String NODE_ENDPOINT = "https://rabbit.dev/http";
+//        String NODE_ENDPOINT = "https://rabbit.dev/http";
+        String NODE_ENDPOINT = "http://127.0.0.1:8545";
         return new HttpService(NODE_ENDPOINT, okHttpClient());
     }
 

@@ -17,6 +17,7 @@ import org.springframework.util.ObjectUtils;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
 import java.util.Map;
 
 import static dev.rabbit.utils.Constants.WETH_ADDRESS;
@@ -30,11 +31,11 @@ public class ValueConverter {
     private static final String URL = "https://min-api.cryptocompare.com/data/price?fsym=%s&tsyms=ETH";
 
     public BigDecimal deriveEtherValue(Double ethPrice, BigInteger profitBeforeGas) {
-        return BigDecimal.valueOf(ethPrice).multiply(new BigDecimal(profitBeforeGas));
+        return BigDecimal.valueOf(ethPrice).multiply(new BigDecimal(profitBeforeGas), MathContext.DECIMAL128);
     }
 
     @Cacheable(value="token", key="#token")
-    public Double makeRequest(Token token) throws IOException, EthPriceRequestFailureException {
+    public Double makeRequest(Token token) throws EthPriceRequestFailureException {
         if(token.getAddress().equalsIgnoreCase(WETH_ADDRESS)) return Double.valueOf("1.0");
         Request request = new Request.Builder()
                 .url(String .format(URL, token.getSymbol()))
@@ -53,6 +54,8 @@ public class ValueConverter {
                 throw EthPriceRequestFailureException.of(token.getSymbol());
             }
             return ethPrice;
+        } catch (IOException e) {
+            throw EthPriceRequestFailureException.of(token.getSymbol());
         }
     }
 

@@ -20,7 +20,7 @@ public class TickMath {
             throw new IllegalArgumentException("Tick exceeds the max tick");
         }
 
-        BigInteger ratio = absTick.and(ONE).equals(BigInteger.ONE) ? new BigInteger("fffcb933bd6fad37aa2d162d1a594001", 16) : new BigInteger("100000000000000000000000000000000", 16);
+        BigInteger ratio = !(absTick.and(ONE).equals(ZERO)) ? new BigInteger("fffcb933bd6fad37aa2d162d1a594001", 16) : new BigInteger("100000000000000000000000000000000", 16);
         if (!(absTick.and(new BigInteger("2", 16)).equals(ZERO))) ratio = ratio.multiply(new BigInteger("fff97272373d413259a46990580e213a", 16)).shiftRight(128);
         if (!(absTick.and(new BigInteger("4", 16)).equals(ZERO))) ratio = ratio.multiply(new BigInteger("fff2e50f5f656932ef12357cf3c7fdcc", 16)).shiftRight(128);
         if (!(absTick.and(new BigInteger("8", 16)).equals(ZERO))) ratio = ratio.multiply(new BigInteger("ffe5caca7e10e4e61c3624eaa0941cd0", 16)).shiftRight(128);
@@ -56,33 +56,118 @@ public class TickMath {
 
         BigInteger ratio = sqrtPriceX96.shiftLeft(32);
 
+        BigInteger f;
         BigInteger r = ratio;
-        int msb = 0;
+        BigInteger msb = ZERO;
 
-        for (int i = 7; i >= 0; i--) {
-            BigInteger threshold = BigInteger.valueOf(2).pow(64 * (i + 1));
-            int f = (r.compareTo(threshold) > 0) ? 1 : 0;
-            msb |= f;
-            r = r.shiftRight(f);
-            msb <<= 1;
-        }
+        // Assembly code in solidity
+        f = (r.compareTo(new BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 16)) > 0 ? ONE : ZERO).shiftLeft(7);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
 
-        if (msb >= 128) {
-            r = ratio.shiftRight(msb - 127);
-        } else {
-            r = ratio.shiftLeft(127 - msb);
-        }
+        f = (r.compareTo(new BigInteger("FFFFFFFFFFFFFFFF", 16)) > 0 ? ONE : ZERO).shiftLeft(6);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
 
-        BigInteger log2 = BigInteger.valueOf(msb - 128).shiftLeft(64);
+        f = (r.compareTo(new BigInteger("FFFFFFFF", 16)) > 0 ? ONE : ZERO).shiftLeft(5);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
 
-        for (int i = 0; i < 12; i++) {
-            r = r.multiply(r).shiftRight(127);
-            BigInteger f = r.shiftRight(128);
-            log2 = log2.or(f.shiftLeft(63 - i));
-            r = r.shiftRight(f.intValue());
-        }
+        f = (r.compareTo(new BigInteger("FFFF", 16)) > 0 ? ONE : ZERO).shiftLeft(4);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
 
-        BigInteger logSqrt10001 = log2.multiply(new BigInteger("255738958999603826347141")); // 128.128 number
+        f = (r.compareTo(new BigInteger("FF", 16)) > 0 ? ONE : ZERO).shiftLeft(3);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
+
+        f = (r.compareTo(new BigInteger("F", 16)) > 0 ? ONE : ZERO).shiftLeft(2);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
+
+        f = (r.compareTo(new BigInteger("3")) > 0 ? ONE : ZERO).shiftLeft(1);
+        msb = msb.or(f);
+        r = r.shiftRight(f.intValue());
+
+        f = r.compareTo(ONE) > 0 ? ONE : ZERO;
+        msb = msb.or(f);
+
+        r = msb.compareTo(BigInteger.valueOf(128)) >= 0
+                ? ratio.shiftRight(msb.subtract(BigInteger.valueOf(127)).intValue())
+                : ratio.shiftLeft(BigInteger.valueOf(127).subtract(msb).intValue());
+
+        BigInteger log2 = msb.subtract(BigInteger.valueOf(128)).shiftLeft(64);
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(63));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(62));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(61));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(60));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(59));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(58));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(57));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(56));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(55));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(54));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(53));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(52));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(51));
+        r = r.shiftRight(f.intValue());
+
+        r = r.multiply(r).shiftRight(127);
+        f = r.shiftRight(128);
+        log2 = log2.or(f.shiftLeft(50));
+
+        BigInteger logSqrt10001 = log2.multiply(new BigInteger("255738958999603826347141"));
 
         BigInteger tickLow = logSqrt10001.subtract(new BigInteger("3402992956809132418596140100660247210")).shiftRight(128);
         BigInteger tickHi = logSqrt10001.add(new BigInteger("291339464771989622907027621153398088495")).shiftRight(128);

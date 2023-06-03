@@ -39,6 +39,11 @@ public class Trade {
         amountOut = computeAmountOutNoTicks(amountIn);
     }
 
+    public void computeAndSetAmountOutWithTicks() {
+        Preconditions.checkState(amountIn != null, "amountIn field is null");
+        amountOut = computeAmountOutWithTicks(amountIn);
+    }
+
     public BigInteger computeAmountOutNoTicks(BigInteger amountIn) {
         return pool.computeAmountOutNoTicks(amountIn, ordered);
     }
@@ -51,12 +56,8 @@ public class Trade {
         return pool.computeAmountOutWithTicks(amountIn, ordered);
     }
 
-    public BigInteger computeAmountInWithTicks(BigInteger amountOut) {
-        return pool.computeAmountInWithTicks(amountOut, ordered);
-    }
-
     public BigInteger swap(BigInteger amountIn) {
-        return pool.swap(amountIn, ordered);
+        return pool.swap(amountIn, ordered, true);
     }
 
     @Override

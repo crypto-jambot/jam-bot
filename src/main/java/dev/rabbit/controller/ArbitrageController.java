@@ -17,9 +17,8 @@ import dev.rabbit.service.MongoService;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
@@ -40,25 +39,17 @@ public class ArbitrageController {
     private final MongoService mongoService;
 
 
-    @RequestMapping(value = "/", method = RequestMethod.POST)
-    public ResponseEntity<List<Tree>> receiveMessage(@RequestBody Body body) throws JsonProcessingException,
+    @PostMapping(value = "/")
+    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException,
             RPCCallFailureException {
         verifyMessageFormat(body);
-        List<Tree> trees = parseBody(body);
-        return ResponseEntity.ok(trees);
-//        try {
-//            arbitrageService.analyze(derivePaths(parseBody(body)));
-//            return ResponseEntity.accepted().build();
-//        }
-//        finally {
-//            poolFactory.clearPools();
-//        }
-//        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
-//        bundleService.sendBundles(profitablePaths);
-//        //Publish message
-//        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
-//                new MessageHeaders(Collections.emptyMap()));
-//        pubSubOutboundGateway.sendToPubsub(message);
+        try {
+            arbitrageService.analyze(derivePaths(parseBody(body)));
+            return ResponseEntity.accepted().build();
+        }
+        finally {
+            poolFactory.clearPools();
+        }
     }
 
     private void verifyMessageFormat(Body body) {
@@ -93,3 +84,11 @@ public class ArbitrageController {
         return paths;
     }
 }
+
+//        REFERENCE - To be deleted
+//        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
+//        bundleService.sendBundles(profitablePaths);
+//        //Publish message
+//        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
+//                new MessageHeaders(Collections.emptyMap()));
+//        pubSubOutboundGateway.sendToPubsub(message);

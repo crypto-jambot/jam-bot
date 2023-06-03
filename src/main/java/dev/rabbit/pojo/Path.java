@@ -1,14 +1,22 @@
 package dev.rabbit.pojo;
 
 import com.google.cloud.Tuple;
+import com.google.common.base.Preconditions;
+import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.exception.GasEstimationFailureException;
+import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.pool.Pool;
+import dev.rabbit.pool.UniswapV2Pool;
+import dev.rabbit.pool.UniswapV3Pool;
 import dev.rabbit.record.Tree;
+import dev.rabbit.spring.SpringContext;
+import dev.rabbit.utils.ValueConverter;
 import dev.rabbit.utils.Wallet;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.util.ObjectUtils;
 import org.web3j.abi.DefaultFunctionEncoder;
@@ -29,19 +37,17 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
-import java.math.RoundingMode;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Supplier;
 
 import static dev.rabbit.utils.Constants.DEPLOYER_ADDRESS;
-import static dev.rabbit.utils.Constants.JAM_BOT_ADDRESS;
+import static dev.rabbit.utils.Constants.JAM_BOT_V3_ADDRESS;
 import static dev.rabbit.utils.Constants.R2;
 import static dev.rabbit.utils.Constants.feeToPercent;
 import static dev.rabbit.utils.Constants.getERC20TransferFn;
 import static dev.rabbit.utils.Constants.getJamExecuteTradeFn;
-import static dev.rabbit.utils.Constants.getV2SwapFn;
 import static java.math.BigInteger.ZERO;
 
 @Slf4j
@@ -49,7 +55,6 @@ import static java.math.BigInteger.ZERO;
 public class Path implements Comparable<Path> {
     private final LinkedList<Trade> trades = new LinkedList<>();
     private BigInteger optimalTradingVolume = ZERO;
-    private BigInteger[] tradeAmounts;
     private BigInteger profitBeforeGas;
     private BigDecimal profitBeforeGasInEther;
     private byte[] callData;
@@ -106,7 +111,11 @@ public class Path implements Comparable<Path> {
         this.trades.removeLast();
     }
 
-    // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
+    /**
+     * Runs a top level equation to check if the multiplied reserves of all pools are greater than the fees that would be incurred from a Path swap
+     * @return True if value is extractable from this Path. False otherwise
+     * @see <a href="https://arxiv.org/pdf/2105.02784.pdf">Cyclic Arbitrage in Decentralized Exchanges</a>
+     */
     public boolean isValueExtractable() {
         BigInteger leftOperandNumerator = BigInteger.ONE;
         BigInteger leftOperandDenominator = BigInteger.ONE;
@@ -136,13 +145,25 @@ public class Path implements Comparable<Path> {
 
         BigDecimal rightOperandDenominator = multipliedInputFees.multiply(multipliedOutputFees);
 
-        BigDecimal leftOperand = new BigDecimal(leftOperandNumerator).divide(new BigDecimal(leftOperandDenominator), 10, RoundingMode.HALF_DOWN);
-        BigDecimal rightOperand = rightOperandNumerator.divide(rightOperandDenominator, 10, RoundingMode.HALF_DOWN);
+        BigDecimal leftOperand = new BigDecimal(leftOperandNumerator).divide(new BigDecimal(leftOperandDenominator), MathContext.DECIMAL128);
+        BigDecimal rightOperand = rightOperandNumerator.divide(rightOperandDenominator, MathContext.DECIMAL128);
         return leftOperand.compareTo(rightOperand) > 0;
     }
 
-    // Math based on research paper -> https://arxiv.org/pdf/2105.02784.pdf
-    // Derive the virtual reserves with the ith fee
+    /**
+     * Calculate the optimal trading volume for this Path.
+     * <ol>
+     *     <li>Calculate initial optimal amount and trade amounts through the path assuming no tick encounters</li>
+     *     <li>Determine the earliest point in the trade path where a tick is encountered</li>
+     *     <li>Perform a partial swap up to the tick, and recalculate the state of all the pool reserves</li>
+     *     <li>Keep track of the input amount from the partial swap</li>
+     *     <li>From the new state, recalculate the optimal amount</li>
+     *     <li>Repeat until we complete the full swap. Add up all the input amounts from partial swaps</li>
+     *     <li>Assign the final optimalAmount to this Path and return</li>
+     * </ol>
+     * @throws ZeroAmountException If the initial optimal amount Floors to zero, the path is no good
+     * @see <a href="https://arxiv.org/pdf/2105.02784.pdf">Cyclic Arbitrage in Decentralized Exchanges</a>
+     */
     public void calculateOptimalTradingVolume() throws ZeroAmountException {
         // Supplier will be reused to recalculate the optimal trading amount
         Supplier<BigDecimal> getOptimalAmountFn = () -> {
@@ -161,8 +182,8 @@ public class Path implements Comparable<Path> {
                 BigDecimal oRNumerator = R1.multiply(R2).multiply(outputReserve).multiply(ithOutputReserve);
                 BigDecimal rDenominator = ithInputReserve.add(R1.multiply(R2).multiply(outputReserve));
 
-                inputReserve = iRNumerator.divide(rDenominator, 30, RoundingMode.HALF_DOWN);
-                outputReserve = oRNumerator.divide(rDenominator, 30, RoundingMode.HALF_DOWN);
+                inputReserve = iRNumerator.divide(rDenominator, MathContext.DECIMAL128);
+                outputReserve = oRNumerator.divide(rDenominator, MathContext.DECIMAL128);
             }
             BigDecimal numerator = feeToPercent(fee).multiply(R2).multiply(outputReserve).multiply(inputReserve).sqrt(MathContext.DECIMAL128).subtract(inputReserve);
             return numerator.divide(feeToPercent(fee), MathContext.DECIMAL128);
@@ -170,19 +191,8 @@ public class Path implements Comparable<Path> {
 
         // Determine initial optimal trading amount. This is subject to change if ticks are encountered
         BigInteger optimalInput = getOptimalAmountFn.get().toBigInteger();
-        // Sometimes the optimal amount is so small that flooring via toBigInteger() results in 0
-        // This path does not contain extractable value
         if (optimalInput.equals(ZERO)) throw new ZeroAmountException();
 
-        /* A tick crossing changes the state of a pool. This throws off the optimal amount equation.
-            As long as our calculated optimal amount encounters ticks during the swap, we must:
-                1. Determine the earliest point in the trade path where a tick is encountered
-                2. Perform a partial swap up to the tick, and recalculate the state of all the pool reserves
-                3. Keep track of the input amount from the partial swap
-                3. From the new state, recalculate the optimal amount
-                5. Repeat until we complete the full swap. Add up all the input amounts from partial swaps
-                6. Return the final optimal amount of the trade path
-         */
         while (true) {
             BigInteger inputAmountToEarliestTick = null;
 
@@ -231,8 +241,19 @@ public class Path implements Comparable<Path> {
 
             swap(inputAmountToEarliestTick);
 
+            if (!isValueExtractable()) return;
             optimalInput = getOptimalAmountFn.get().toBigInteger();
             if (optimalInput.equals(ZERO)) return;
+        }
+    }
+
+    public void populateInputAndOutputTradeAmountsWithTicks() {
+        Preconditions.checkState(optimalTradingVolume.compareTo(ZERO) > 0, "Optimal amount must be greater then zero to evaluate for profit");
+        trades.get(0).setAmountIn(optimalTradingVolume);
+        for (int i = 0; i < trades.size(); i++) {
+            Trade trade = trades.get(i);
+            trade.computeAndSetAmountOutWithTicks();
+            if (i != trades.size() - 1) trades.get(i + 1).setAmountIn(trade.getAmountOut());
         }
     }
 
@@ -251,64 +272,106 @@ public class Path implements Comparable<Path> {
         }
     }
 
-//    public void calculateRevenue(ValueConverter valueConverter) throws ZeroAmountOutException, IOException, EthPriceRequestFailureException {
-//        tradeAmounts = new BigInteger[this.trades.size() + 1];
-//        tradeAmounts[0] = this.optimalTradingVolume.toBigInteger();
-//        for (int i = 0; i < trades.size(); i++) {
-//            BigInteger[] orderedReserves = trades.get(i).getOrderedReserves();
-//            tradeAmounts[i + 1] = getAmountOut(tradeAmounts[i], orderedReserves[0], orderedReserves[1]);
-//        }
-//        this.profitBeforeGas = tradeAmounts[this.trades.size()].subtract(tradeAmounts[0]);
-//        this.profitBeforeGasInEther = valueConverter.deriveEtherValue(valueConverter.makeRequest(this.trades.get(0).getStart()), this.profitBeforeGas);
-//    }
+    public void calculateRevenue() throws EthPriceRequestFailureException {
+        ValueConverter valueConverter = SpringContext.getBean(ValueConverter.class);
+        profitBeforeGas = trades.getLast().getAmountOut().subtract(trades.getFirst().getAmountIn());
+        profitBeforeGasInEther = valueConverter.deriveEtherValue(valueConverter.makeRequest(trades.get(0).getStart()), profitBeforeGas);
+    }
 
     public void encodeCallData() {
         DefaultFunctionEncoder encoder = new DefaultFunctionEncoder();
 
-        Address[] targetArray = new Address[this.trades.size()];
-        DynamicBytes[] payloadArray = new DynamicBytes[this.trades.size()];
+        List<Address> targetList = new ArrayList<>();
+        List<DynamicBytes> payloadList = new ArrayList<>();
 
-        // Encode the first ERC20 Transfer
-        targetArray[0] = new Address(this.trades.get(0).getStart().getAddress());
-        payloadArray[0] = new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(getERC20TransferFn(this.trades.get(0).getPool().getAddress(), this.tradeAmounts[0]))));
+        // Encode the first ERC20 transfer and add to the running lists
+        targetList.add(new Address(trades.get(0).getStart().getAddress()));
+        payloadList.add(new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(getERC20TransferFn(trades.get(0).getPool().getAddress(), trades.get(0).getAmountIn())))));
 
-        // Encode all the swap calls except the last one
-        for (int i = 1; i < this.trades.size(); i++) {
-            targetArray[i] = new Address(this.trades.get(i - 1).getPool().getAddress());
-            Function v2SwapFn = this.trades.get(i - 1).isOrdered()
-                    ? getV2SwapFn(ZERO, this.tradeAmounts[i], this.trades.get(i).getPool().getAddress(), new byte[0])
-                    : getV2SwapFn(this.tradeAmounts[i], ZERO, this.trades.get(i).getPool().getAddress(), new byte[0]);
-            payloadArray[i] = new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(v2SwapFn)));
+        // Encode all swaps except the last
+        for (int i = 0; i < trades.size() - 1; i++) {
+            Trade trade = trades.get(i);
+            Address sender = new Address(trades.get(i).getPool().getAddress());
+            Address recipient = i == trades.size() - 1 ? JAM_BOT_V3_ADDRESS : new Address(trades.get(i + 1).getPool().getAddress());
+
+            // Only logic in app that needs awareness of the concrete type
+            if (trade.getPool() instanceof UniswapV2Pool) {
+
+                UniswapV2Pool pool = (UniswapV2Pool) trade.getPool();
+                Function swapFn = pool.getSwapFn(trade.isOrdered(), trade.getAmountOut(), recipient, ArrayUtils.EMPTY_BYTE_ARRAY);
+
+                // Add this encoded call to the lists
+                targetList.add(sender);
+                payloadList.add(new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(swapFn))));
+                continue;
+            }
+
+            // If the trade is a V3 pool, we take the running list of payloads and inject as bytes to the swap
+            if (trade.getPool() instanceof  UniswapV3Pool) {
+
+                // Convert the running lists to DynamicArray Web3J type
+                DynamicArray<Address> targets = new DynamicArray<>(Address.class, targetList);
+                DynamicArray<DynamicBytes> payloads = new DynamicArray<>(DynamicBytes.class, payloadList);
+
+                // Encode to byte[]
+                byte[] bytes = Numeric.hexStringToByteArray(encoder.encodeParameters(List.of(targets, payloads)));
+
+                // Clear the lists so avoid double encoding
+                targetList.clear();
+                payloadList.clear();
+
+                UniswapV3Pool pool = (UniswapV3Pool) trade.getPool();
+                Function swapFn = pool.getSwapFn(recipient, trade.isOrdered(), trade.getAmountIn(), bytes);
+
+                // Add this encoded call to the lists
+                targetList.add(sender);
+                payloadList.add(new DynamicBytes(Numeric.hexStringToByteArray(encoder.encodeFunction(swapFn))));
+                continue;
+            }
+
+            throw new IllegalStateException(String.format("Pool: %s is of an unknown or unsupported type", trade.getPool().getClass().getName()));
         }
 
-        // Convert arrays to DynamicArray Web3J type
-        DynamicArray<Address> targets = new DynamicArray<>(Address.class, Arrays.asList(targetArray));
-        DynamicArray<DynamicBytes> payloads = new DynamicArray<>(DynamicBytes.class, Arrays.asList(payloadArray));
+        // Convert the running lists to DynamicArray Web3J type
+        DynamicArray<Address> targets = new DynamicArray<>(Address.class, targetList);
+        DynamicArray<DynamicBytes> payloads = new DynamicArray<>(DynamicBytes.class, payloadList);
 
-        String callDataString = encoder.encodeParameters(List.of(targets, payloads));
-        byte[] callData = Numeric.hexStringToByteArray(callDataString);
+        // Encode to byte[]
+        byte[] bytes = Numeric.hexStringToByteArray(encoder.encodeParameters(List.of(targets, payloads)));
 
-        // Encode the last swap call with calldata
-        Trade lastTrade = this.trades.getLast();
-        Function v2SwapFnWithCallData = lastTrade.isOrdered()
-                ? getV2SwapFn(ZERO, this.tradeAmounts[this.tradeAmounts.length - 1], JAM_BOT_ADDRESS, callData)
-                : getV2SwapFn(this.tradeAmounts[this.tradeAmounts.length - 1], ZERO, JAM_BOT_ADDRESS, callData);
+        // Encode the last swap call
+        Trade lastTrade = trades.getLast();
+        Function lastSwapFn = trades.getLast().getPool().getSwapFn(JAM_BOT_V3_ADDRESS, lastTrade.isOrdered(), lastTrade.getAmountIn(), lastTrade.getAmountOut(), bytes);
 
-        this.callData = Numeric.hexStringToByteArray(encoder.encodeFunction(v2SwapFnWithCallData));
+        callData = Numeric.hexStringToByteArray(encoder.encodeFunction(lastSwapFn));
     }
 
-    public void simulate(Web3j web3j) throws IOException, GasEstimationFailureException {
+    public void simulate(boolean testing) throws GasEstimationFailureException {
         Function JAM_EXECUTE_TRADE_FN = getJamExecuteTradeFn(
-                this.trades.get(0).getStart().getAddress(),
-                this.trades.get(this.trades.size() - 1).getPool().getAddress(),
-                this.callData);
-        Transaction transaction = Transaction.createEthCallTransaction(DEPLOYER_ADDRESS, JAM_BOT_ADDRESS, FunctionEncoder.encode(JAM_EXECUTE_TRADE_FN));
-        EthEstimateGas response = web3j.ethEstimateGas(transaction).send();
-        if (!ObjectUtils.isEmpty(response.getError())) {
-            throw GasEstimationFailureException.of();
+                trades.get(0).getStart().getAddress(),
+                trades.get(trades.size() - 1).getPool().getAddress(),
+                callData);
+        Transaction transaction = Transaction.createEthCallTransaction(DEPLOYER_ADDRESS, JAM_BOT_V3_ADDRESS.toString(), FunctionEncoder.encode(JAM_EXECUTE_TRADE_FN));
+        if (!testing) {
+            EthEstimateGas response = null;
+            try {
+                response = SpringContext.getBean(Web3j.class).ethEstimateGas(transaction).send();
+                if (!ObjectUtils.isEmpty(response.getError())) {
+                    throw GasEstimationFailureException.of(response.getError().getMessage());
+                }
+                // Usually the real amount of gas used is slightly less than estimated
+                System.out.println(Numeric.toHexString(callData));
+                gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
+            } catch (IOException exception) {
+                throw GasEstimationFailureException.of(exception);
+            }
+        } else {
+            gasUsed = BigInteger.valueOf(250000);
         }
-        this.gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
-        this.netProfitAfterBaseFee = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).subtract(this.gasUsed.multiply(this.baseFeePerGas));
+
+        netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));
+        maxPriorityFeePerGas = ZERO;
+        netProfit = netProfitAfterBaseFee;
 //        BigInteger lowerBoundPriority = ONE_GWEI;
 //        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
 //        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
@@ -320,62 +383,42 @@ public class Path implements Comparable<Path> {
 //        } else {
 //            this.maxPriorityFeePerGas = validatorSharePerGas;
 //        }
-        this.maxPriorityFeePerGas = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).divide(this.gasUsed);
+        // This gives all profit to the proposer. This value is also set as the max gas total if used.
+//        this.maxPriorityFeePerGas = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).divide(this.gasUsed);
 //        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
-        this.netProfit = ZERO;
+//        this.netProfit = ZERO;
     }
 
-    public void buildSignedTransaction(Web3j web3j, Wallet wallet) throws IOException {
+    public void buildSignedTransaction() {
         String startToken = this.trades.getFirst().getStart().getAddress();
         String target = this.trades.getLast().getPool().getAddress();
 
-        String data = FunctionEncoder.encode(getJamExecuteTradeFn(startToken, target, this.callData));
+        String data = FunctionEncoder.encode(getJamExecuteTradeFn(startToken, target, callData));
+
+        BigInteger nonce;
+        try {
+            nonce = SpringContext.getBean(Web3j.class).ethGetTransactionCount(DEPLOYER_ADDRESS, DefaultBlockParameter.valueOf("latest")).send().getTransactionCount();
+        } catch (IOException exception) {
+            throw RPCCallFailureException.of("Failure to get nonce (transaction count) from deployer address", exception);
+        }
         RawTransaction transaction = RawTransaction.createTransaction(
                 1L,
-                web3j.ethGetTransactionCount(DEPLOYER_ADDRESS, DefaultBlockParameter.valueOf("latest")).send().getTransactionCount(),
-                BigDecimal.valueOf(1.5).multiply(new BigDecimal(String.valueOf(this.gasUsed))).toBigInteger(),
-                JAM_BOT_ADDRESS,
+                nonce,
+                gasUsed.multiply(BigInteger.valueOf(150)).divide(BigInteger.valueOf(100)),
+                JAM_BOT_V3_ADDRESS.toString(),
                 ZERO,
                 data,
-                this.maxPriorityFeePerGas,
-//                this.maxBaseFeeInFutureBlock.add(this.maxPriorityFeePerGas)
-                this.maxPriorityFeePerGas
+                maxPriorityFeePerGas,
+                maxBaseFeeInFutureBlock.add(maxPriorityFeePerGas)
+//                this.maxPriorityFeePerGas
         );
-        byte[] signedTransaction = TransactionEncoder.signMessage(transaction, wallet.getAccount(0).getCredentials());
+        byte[] signedTransaction = TransactionEncoder.signMessage(transaction, SpringContext.getBean(Wallet.class).getAccount(0).getCredentials());
         this.signedTransaction = Numeric.toHexString(signedTransaction);
-    }
-
-//    private BigInteger getAmountOut(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountOutException {
-//        checkInputs(amountIn, reserveIn, reserveOut);
-//        BigInteger amountInWithFee = amountIn.multiply(new BigInteger("997"));
-//        BigInteger numerator = amountInWithFee.multiply(reserveOut);
-//        BigInteger denominator = reserveIn.multiply(new BigInteger("1000")).add(amountInWithFee);
-//        return numerator.divide(denominator);
-//    }
-
-//    private BigDecimal[] getLastSwapOrderedReserves() {
-//        return (BigDecimal[]) Arrays.stream(trades.getLast().getOrderedReserves()).map(BigDecimal::new).toArray();
-//        Trade lastTrade = this.trades.get(this.trades.size() - 1);
-//        BigDecimal lastTradeReserve0 = new BigDecimal(lastTrade.getPool().getReserves().reserve0());
-//        BigDecimal lastTradeReserve1 = new BigDecimal(lastTrade.getPool().getReserves().reserve1());
-//        BigDecimal lastSwapInputReserve = lastTrade.isOrdered() ? lastTradeReserve0 : lastTradeReserve1;
-//        BigDecimal lastSwapOutputReserve = lastTrade.isOrdered() ? lastTradeReserve1 : lastTradeReserve0;
-//        return new BigDecimal[]{lastSwapInputReserve, lastSwapOutputReserve};
-//    }
-
-    private void checkInputs(BigInteger amountIn, BigInteger reserveIn, BigInteger reserveOut) throws ZeroAmountException {
-        if (ObjectUtils.isEmpty(amountIn) ||
-            ObjectUtils.isEmpty(reserveIn) ||
-            ObjectUtils.isEmpty(reserveOut) ||
-            amountIn.compareTo(ZERO) <= 0 ||
-            reserveIn.compareTo(ZERO) <= 0 ||
-            reserveOut.compareTo(ZERO) <= 0) {
-            throw new ZeroAmountException();
-        }
     }
 
     @Override
     public int compareTo(@NotNull Path o) {
-        return (!ObjectUtils.isEmpty(this.maxPriorityFeePerGas) && !ObjectUtils.isEmpty(o.maxPriorityFeePerGas)) ? this.maxPriorityFeePerGas.compareTo(o.maxPriorityFeePerGas) : this.profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
+        Preconditions.checkState(profitBeforeGasInEther != null, "Cannot compare paths because the profitBeforeGasInEther field is null");
+        return (!ObjectUtils.isEmpty(netProfit) && !ObjectUtils.isEmpty(o.netProfit)) ? netProfit.compareTo(o.netProfit) : profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
 }

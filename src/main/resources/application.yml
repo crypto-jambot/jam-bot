@@ -47,6 +47,10 @@ defi:
       poolType: dev.rabbit.pool.UniswapV2Pool
     uniswapV3:
       poolType: dev.rabbit.pool.UniswapV3Pool
+    sushiswapV3:
+      poolType: dev.rabbit.pool.UniswapV3Pool
+    pancakeswapV3:
+      poolType: dev.rabbit.pool.UniswapV3Pool
 spring:
   data:
     mongodb:
