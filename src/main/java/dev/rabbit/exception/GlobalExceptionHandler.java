@@ -18,6 +18,6 @@ public class GlobalExceptionHandler {
         if (ex instanceof InvalidPubSubMessageException) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-        return ResponseEntity.status(HttpStatus.MULTI_STATUS).body(ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).body(ex.getMessage());
     }
 }
