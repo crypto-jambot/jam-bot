@@ -17,7 +17,6 @@ import dev.rabbit.service.ArbitrageService;
 import dev.rabbit.service.BundleService;
 import dev.rabbit.service.MongoService;
 import lombok.AllArgsConstructor;
-import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.Message;
@@ -51,7 +50,6 @@ public class ArbitrageController {
     private final PubSubOutboundGateway pubSubOutboundGateway;
     private final MongoService mongoService;
     private final Web3j web3j;
-
 
     @PostMapping(value = "/")
     public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
@@ -96,10 +94,6 @@ public class ArbitrageController {
             Path path = Path.of();
             Tree.Node startToken = tree.node();
             tree.traverse(((start, end, pool, ordered) -> {
-                Pool<? extends State> createdPool = poolFactory.createPool(pool, pools);
-                if (ObjectUtils.isEmpty(createdPool)) {
-                    throw new RuntimeException("THIS SHOULD NEVER BE NULL");
-                }
                 path.addTrade(start, end, poolFactory.createPool(pool, pools), ordered);
                 if (end.equals(startToken)) paths.add(Path.of(path));
             }), path::removeLast);
