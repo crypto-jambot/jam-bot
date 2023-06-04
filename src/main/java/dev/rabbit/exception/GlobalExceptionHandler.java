@@ -6,8 +6,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
-import java.util.Arrays;
-
 @Slf4j
 @ControllerAdvice
 public class GlobalExceptionHandler {
@@ -20,6 +18,6 @@ public class GlobalExceptionHandler {
         if (ex instanceof InvalidPubSubMessageException) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
         }
-        return ResponseEntity.status(HttpStatus.OK).body(ex.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ex.getMessage());
     }
 }

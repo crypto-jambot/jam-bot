@@ -1,7 +1,7 @@
 package dev.rabbit.utils;
 
 import dev.rabbit.config.WalletConfiguration;
-import dev.rabbit.exception.RetrieveBalanceFailureException;
+import dev.rabbit.exception.RPCCallFailureException;
 import lombok.AccessLevel;
 import lombok.Getter;
 import org.apache.commons.lang3.ObjectUtils;
@@ -75,7 +75,7 @@ public class Wallet {
             try {
                 lastKnownBalance = web3j.ethGetBalance(this.address, DefaultBlockParameter.valueOf("latest")).send().getBalance();
             } catch (IOException e) {
-                throw new RetrieveBalanceFailureException("Failed to retrieve the balance of the account: " + this.address, e);
+                throw RPCCallFailureException.of("Failed to retrieve the balance of the account: " + this.address, e);
             }
         }
 

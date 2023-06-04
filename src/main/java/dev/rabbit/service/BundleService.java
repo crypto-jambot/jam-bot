@@ -1,6 +1,8 @@
 package dev.rabbit.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.pojo.BlockBuilder;
 import dev.rabbit.pojo.Path;
 import lombok.AllArgsConstructor;
@@ -39,13 +41,11 @@ public class BundleService {
     private final Credentials flashbotCredentials;
     private final ObjectMapper mapper;
     private final OkHttpClient httpClient;
-    private final Web3j web3j;
 
-    public void sendBundles(List<Path> paths) throws IOException {
-        BigInteger currentBlockNumber = web3j.ethBlockNumber().send().getBlockNumber();
+    public void sendBundles(String triggeringPool, BigInteger currentBlockNumber, List<Path> paths) throws JsonProcessingException {
         BigInteger nextBlockNumber = currentBlockNumber.add(BigInteger.ONE);
         BigInteger followingBlockNumber = currentBlockNumber.add(BigInteger.TWO);
-        paths.forEach(path -> log.info("Sending some bundles to builder. Net profit is estimated to be: " + Convert.fromWei(path.getNetProfit().toString(), Convert.Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN) + " WETH." + " Attempting blocks: " + nextBlockNumber + " and " + followingBlockNumber));
+        paths.forEach(path -> log.info("Sending some bundles to builders. Net profit is estimated to be: " + Convert.fromWei(path.getNetProfit().toString(), Convert.Unit.ETHER).setScale(6, RoundingMode.HALF_DOWN) + " WETH." + " Triggering pool: " + triggeringPool + "Attempting blocks: " + nextBlockNumber + " and " + followingBlockNumber));
         List<String> jsonBodies = new ArrayList<>();
         for (Path path : paths) {
             jsonBodies.add(mapper.writeValueAsString(

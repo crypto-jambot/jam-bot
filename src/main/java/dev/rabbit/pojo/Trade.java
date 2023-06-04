@@ -1,25 +1,63 @@
 package dev.rabbit.pojo;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import dev.rabbit.record.Reserves;
+import com.google.cloud.Tuple;
+import com.google.common.base.Preconditions;
+import dev.rabbit.pool.Pool;
+import dev.rabbit.pool.State;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.math.BigInteger;
 
 @Builder
 @Getter
 public class Trade {
-    private Token start;
-    private Token end;
-    private boolean ordered;
-    private Pool pool;
+    private final Token start;
+    private final Token end;
+    private final boolean ordered;
+    private final Pool<? extends State> pool;
+    @Setter
+    private BigInteger amountIn;
+    @Setter
+    private BigInteger amountOut;
 
-    public BigInteger[] getOrderedReserves() {
-        Reserves reserves = this.pool.getReserves();
-        BigInteger reserve0 = reserves.reserve0();
-        BigInteger reserve1 = reserves.reserve1();
-        return this.ordered ? new BigInteger[]{reserve0, reserve1} : new BigInteger[]{reserve1, reserve0};
+    public Tuple<BigInteger, BigInteger> getOrderedReserves() {
+        BigInteger reserve0 = pool.getReserve0();
+        BigInteger reserve1 = pool.getReserve1();
+        return this.ordered ? Tuple.of(reserve0, reserve1) : Tuple.of(reserve1, reserve0);
+    }
+
+    // Returns back the amountIn or whatever would be the amountIn to swap up the nearest initialized tick
+    public BigInteger getFullInputAmountOrToFirstTick() {
+        Preconditions.checkState(amountIn != null, "amountIn field is null");
+        return pool.getFullInputAmountOrToFirstTick(amountIn, ordered);
+    }
+
+    public void computeAndSetAmountOutNoTicks() {
+        Preconditions.checkState(amountIn != null, "amountIn field is null");
+        amountOut = computeAmountOutNoTicks(amountIn);
+    }
+
+    public void computeAndSetAmountOutWithTicks() {
+        Preconditions.checkState(amountIn != null, "amountIn field is null");
+        amountOut = computeAmountOutWithTicks(amountIn);
+    }
+
+    public BigInteger computeAmountOutNoTicks(BigInteger amountIn) {
+        return pool.computeAmountOutNoTicks(amountIn, ordered);
+    }
+
+    public BigInteger computeAmountInNoTicks(BigInteger amountOut) {
+        return pool.computeAmountInNoTicks(amountOut, ordered);
+    }
+
+    public BigInteger computeAmountOutWithTicks(BigInteger amountIn) {
+        return pool.computeAmountOutWithTicks(amountIn, ordered);
+    }
+
+    public BigInteger swap(BigInteger amountIn) {
+        return pool.swap(amountIn, ordered, true);
     }
 
     @Override

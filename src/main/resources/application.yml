@@ -3,7 +3,58 @@ wallet:
   flashBotKey: flashbot-signer-key
   projectId: crypto-351521
   numberOfAccounts: 1
+defi:
+  protocols:
+    uniswapV2:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    sushiswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    shibaswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    pancakeswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    defiswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    luaswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    bamboodefi:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    linkswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    swapr:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    fraxswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    capitaldex:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    unicswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    youswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    convergence:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    empiredex:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    elkfinance:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    orionprotocol:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    bxh:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    apeswap:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    radioshack:
+      poolType: dev.rabbit.pool.UniswapV2Pool
+    uniswapV3:
+      poolType: dev.rabbit.pool.UniswapV3Pool
+    sushiswapV3:
+      poolType: dev.rabbit.pool.UniswapV3Pool
+    pancakeswapV3:
+      poolType: dev.rabbit.pool.UniswapV3Pool
 spring:
+  data:
+    mongodb:
+      database: ${DATABASE:test}
   cache:
     cache-names: "token"
   cloud:
@@ -11,6 +62,11 @@ spring:
       pubsub:
         publisher:
           executor-threads: 10
+mongo:
+  user: jam
+  projectId: crypto-351521
+  mongoKey: mongo-password
+  url: mongodb+srv://${DB_USER:test}:%s@${CLUSTER_URL:test.test.test}/?retryWrites=true&w=majority
 pubsub:
   topic: projects/crypto-351521/topics/transactions
 server:
