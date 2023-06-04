@@ -59,7 +59,7 @@ substitutions:
   _MEMORY: 8Gi
   _CPU: 6000m
   _MIN_INSTANCES: "1"
-  _CONCURRENCY: "200"
+  _CONCURRENCY: "500"
   _JAVA_OPTS: "-Xmx7000m -Xms7000m"
   _DATABASE: ethereum
   _DB_USER: jam
