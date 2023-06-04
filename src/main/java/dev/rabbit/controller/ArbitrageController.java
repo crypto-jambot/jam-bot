@@ -17,6 +17,7 @@ import dev.rabbit.service.ArbitrageService;
 import dev.rabbit.service.BundleService;
 import dev.rabbit.service.MongoService;
 import lombok.AllArgsConstructor;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.Message;
@@ -58,13 +59,15 @@ public class ArbitrageController {
         Trees treesObj = parseBody(body);
         List<Path> profitablePaths = arbitrageService.analyze(derivePaths(treesObj.getTrees()));
         if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
-//        BigInteger currentBlockNumber = getCurrentBlockNumber();
-//        bundleService.sendBundles(treesObj.getId(), currentBlockNumber, profitablePaths);
-//        for (Path path : profitablePaths) {
-//            Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(path),
-//                    new MessageHeaders(Map.of("triggeringPool", treesObj.getId(), "targetBlock1", currentBlockNumber.add(ONE), "targetBlock2", currentBlockNumber.add(TWO))));
-//            pubSubOutboundGateway.sendToPubsub(message);
-//        }
+        BigInteger currentBlockNumber = getCurrentBlockNumber();
+        bundleService.sendBundles(treesObj.getId(), currentBlockNumber, profitablePaths);
+        for (Path path : profitablePaths) {
+            Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(path),
+                    new MessageHeaders(
+                            Map.of("triggeringPool", treesObj.getId(), "targetBlock1", currentBlockNumber.add(ONE),
+                                    "targetBlock2", currentBlockNumber.add(TWO))));
+            pubSubOutboundGateway.sendToPubsub(message);
+        }
         return ResponseEntity.accepted().build();
     }
 
@@ -93,6 +96,10 @@ public class ArbitrageController {
             Path path = Path.of();
             Tree.Node startToken = tree.node();
             tree.traverse(((start, end, pool, ordered) -> {
+                Pool<? extends State> createdPool = poolFactory.createPool(pool, pools);
+                if (ObjectUtils.isEmpty(createdPool)) {
+                    throw new RuntimeException("THIS SHOULD NEVER BE NULL");
+                }
                 path.addTrade(start, end, poolFactory.createPool(pool, pools), ordered);
                 if (end.equals(startToken)) paths.add(Path.of(path));
             }), path::removeLast);
@@ -103,7 +110,8 @@ public class ArbitrageController {
     private BigInteger getCurrentBlockNumber() {
         try {
             return web3j.ethBlockNumber().send().getBlockNumber();
-        } catch (IOException exception) {
+        }
+        catch (IOException exception) {
             throw RPCCallFailureException.of("Failure to get current block number", exception);
         }
     }
