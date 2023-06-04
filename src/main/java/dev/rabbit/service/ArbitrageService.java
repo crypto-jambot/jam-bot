@@ -1,7 +1,5 @@
 package dev.rabbit.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.RPCCallFailureException;
@@ -11,7 +9,6 @@ import dev.rabbit.pojo.Path;
 import dev.rabbit.pool.Pool;
 import dev.rabbit.pool.State;
 import dev.rabbit.spring.SpringContext;
-import dev.rabbit.utils.ValueConverter;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -33,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.math.BigInteger.ONE;
@@ -45,6 +43,28 @@ public class ArbitrageService {
     private final HttpService httpService;
     private final Web3j web3j;
 
+    public static <T> List<List<T>> splitList(List<T> originalList, int chunkSize) {
+        List<List<T>> subLists = new ArrayList<>();
+
+        int listSize = originalList.size();
+        for (int i = 0; i < listSize; i += chunkSize) {
+            int end = Math.min(listSize, i + chunkSize);
+            List<T> sublist = originalList.subList(i, end);
+            subLists.add(sublist);
+        }
+
+        return subLists;
+    }
+
+    private static BigInteger getMaxBaseFeeInFutureBlock(BigInteger baseFee) {
+        BigInteger maxBaseFee = new BigInteger(baseFee.toString());
+        for (int i = 0; i < 2; i++) {
+            maxBaseFee =
+                    maxBaseFee.multiply(BigInteger.valueOf(1125)).divide(BigInteger.valueOf(1000)).add(ONE);
+        }
+        return maxBaseFee;
+    }
+
     public List<Path> analyze(List<Path> paths) {
         getData();
 
@@ -52,10 +72,12 @@ public class ArbitrageService {
         if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
 
         // Initialize State for parallel processing
-        pathsWithValueExtractable.forEach(path -> path.getTrades().forEach(trade -> trade.getPool().getState().initialize()));
+        pathsWithValueExtractable.forEach(
+                path -> path.getTrades().forEach(trade -> trade.getPool().getState().initialize()));
 
         System.out.println("Total value extractable paths: " + pathsWithValueExtractable.size());
         AtomicInteger countYe = new AtomicInteger(0);
+
         List<Path> exploitablePaths = pathsWithValueExtractable.parallelStream().filter(path -> {
             try {
                 path.calculateOptimalTradingVolume();
@@ -67,45 +89,52 @@ public class ArbitrageService {
             }
             catch (ZeroAmountException exception) {
                 return false;
-            } catch (EthPriceRequestFailureException exception) {
+            }
+            catch (EthPriceRequestFailureException exception) {
                 log.error(ExceptionUtils.getStackTrace(exception));
                 return false;
-            } finally {
-                System.out.println("Count so far: " + countYe.incrementAndGet() + " of " + pathsWithValueExtractable.size());
+            }
+            finally {
+                System.out.println(
+                        "Count so far: " + countYe.incrementAndGet() + " of " + pathsWithValueExtractable.size());
             }
         }).sorted(Collections.reverseOrder()).toList();
 
         // Clear State after parallel processing
-        pathsWithValueExtractable.forEach(path -> path.getTrades().forEach(trade -> trade.getPool().getState().clear()));
+        pathsWithValueExtractable.forEach(
+                path -> path.getTrades().forEach(trade -> trade.getPool().getState().clear()));
 
         if (exploitablePaths.isEmpty()) return Collections.emptyList();
 
-        exploitablePaths = exploitablePaths.subList(0, 300);
+
+        exploitablePaths = exploitablePaths.subList(0, Math.min(exploitablePaths.size(), 100));
 
         BigInteger baseFeePerGas = getBaseFeePerGas();
         BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas);
+        AtomicBoolean profitable = new AtomicBoolean(false);
 
-        int count = 0;
-        List<Path> profitablePaths = new ArrayList<>();
-        for (Path path : exploitablePaths) {
-            path.setBaseFeePerGas(baseFeePerGas);
-            path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
-            if (count >= 10) break;
+        List<Path> profitablePaths = exploitablePaths.parallelStream().filter((ePath) -> {
+            if (profitable.get()) return false;
+            ePath.setBaseFeePerGas(baseFeePerGas);
+            ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
             try {
-                path.simulate();
-//                if (path.getNetProfit().compareTo(BigInteger.ZERO) <= 0) continue;
-                count++;
-                System.out.println(count);
-                profitablePaths.add(path);
+                ePath.simulate();
+                if (ePath.getNetProfit().compareTo(BigInteger.ZERO) <= 0) {
+                    profitable.set(true);
+                }
+                return true;
             }
             catch (GasEstimationFailureException exception) {
-                System.out.println(exception.getMessage());
+                return false;
             }
-        }
+        }).sorted(Collections.reverseOrder()).toList();
+
+
         if (profitablePaths.isEmpty()) return Collections.emptyList();
         System.out.println("Total Errors: " + GasEstimationFailureException.totalErrors);
 
-        GasEstimationFailureException.errors.forEach((key, value) -> System.out.printf("Error: %s | Occurrences: %d\n", key, value));
+        GasEstimationFailureException.errors.forEach(
+                (key, value) -> System.out.printf("Error: %s | Occurrences: %d\n", key, value));
 
         profitablePaths.parallelStream().forEach(Path::buildSignedTransaction);
 
@@ -142,7 +171,8 @@ public class ArbitrageService {
                 for (Map.Entry<Integer, List<Response<?>>> entry : idToResponseMap.entrySet()) {
                     pools.get(entry.getKey()).assignData(entry.getValue());
                 }
-            } catch (IOException exception) {
+            }
+            catch (IOException exception) {
                 throw RPCCallFailureException.of("Failed to retrieve initial data for pools", exception);
             }
         }
@@ -183,32 +213,13 @@ public class ArbitrageService {
         return idToResponseMap;
     }
 
-    public static <T> List<List<T>> splitList(List<T> originalList, int chunkSize) {
-        List<List<T>> subLists = new ArrayList<>();
-
-        int listSize = originalList.size();
-        for (int i = 0; i < listSize; i += chunkSize) {
-            int end = Math.min(listSize, i + chunkSize);
-            List<T> sublist = originalList.subList(i, end);
-            subLists.add(sublist);
-        }
-
-        return subLists;
-    }
-
-    private static BigInteger getMaxBaseFeeInFutureBlock(BigInteger baseFee) {
-        BigInteger maxBaseFee = new BigInteger(baseFee.toString());
-        for (int i = 0; i < 2; i++) {
-            maxBaseFee =
-                    maxBaseFee.multiply(BigInteger.valueOf(1125)).divide(BigInteger.valueOf(1000)).add(ONE);
-        }
-        return maxBaseFee;
-    }
     private BigInteger getBaseFeePerGas() {
         try {
 //            System.out.println(web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock().getNumber());
-            return web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock().getBaseFeePerGas();
-        } catch (IOException exception) {
+            return web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock()
+                    .getBaseFeePerGas();
+        }
+        catch (IOException exception) {
             throw RPCCallFailureException.of("Failed to get the current block numbers base fee per gas", exception);
         }
     }
