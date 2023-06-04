@@ -40,7 +40,13 @@ steps:
         '--cpu=$_CPU',
         '--concurrency=$_CONCURRENCY',
         '--set-env-vars',
-        'JAVA_OPTS=$_JAVA_OPTS'
+        'JAVA_OPTS=$_JAVA_OPTS',
+        '--set-env-vars',
+        'DATABASE=$_DATABASE',
+        '--set-env-vars',
+        'DB_USER=$_DB_USER',
+        '--set-env-vars',
+        'CLUSTER_URL=$_CLUSTER_URL'
       ]
 images:
   - gcr.io/$PROJECT_ID/$_SERVICE_NAME:$COMMIT_SHA
@@ -52,5 +58,8 @@ substitutions:
   _CPU: 2000m
   _CONCURRENCY: "200"
   _JAVA_OPTS: "-Xmx1400m -Xms1400m"
+  _DATABASE: ethereum
+  _DB_USER: jam
+  _CLUSTER_URL: ethereum.oovx2.mongodb.net
 options:
   substitution_option: ALLOW_LOOSE
