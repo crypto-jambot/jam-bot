@@ -1,6 +1,9 @@
 package dev.rabbit.service;
 
+import dev.rabbit.exception.EthPriceRequestFailureException;
+import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.RPCCallFailureException;
+import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.pool.Pool;
 import dev.rabbit.pool.State;
@@ -16,15 +19,20 @@ import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.http.HttpService;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.math.BigInteger.ONE;
+import static java.math.BigInteger.ZERO;
 
 @Service
 @AllArgsConstructor
@@ -58,67 +66,66 @@ public class ArbitrageService {
 
     public List<Path> analyze(List<Path> paths) {
         getData(paths);
-        return paths;
 
-//        List<Path> pathsWithValueExtractable = paths.parallelStream().filter(Path::isValueExtractable).toList();
-//        if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
-//
-//        // Initialize State for parallel processing
-//        pathsWithValueExtractable.forEach(
-//                path -> path.getTrades().forEach(trade -> trade.getPool().getState().initialize()));
-//
-//        List<Path> exploitablePaths = pathsWithValueExtractable.parallelStream().filter(path -> {
-//            try {
-//                path.calculateOptimalTradingVolume();
-//                path.getTrades().forEach(trade -> trade.getPool().getState().reset());
-//                path.populateInputAndOutputTradeAmountsWithTicks();
-//                path.calculateRevenue();
-//                path.encodeCallData();
-//                return true;
-//            }
-//            catch (ZeroAmountException | EthPriceRequestFailureException exception) {
-//                return false;
-//            }
-//        }).sorted(Collections.reverseOrder()).toList();
-//
-//        // Clear State after parallel processing
-//        pathsWithValueExtractable.forEach(
-//                path -> path.getTrades().forEach(trade -> trade.getPool().getState().clear()));
-//
-//        if (exploitablePaths.isEmpty()) return Collections.emptyList();
-//
-//
-//        exploitablePaths = exploitablePaths.subList(0, Math.min(exploitablePaths.size(), 100));
-//
-//        BigInteger baseFeePerGas = getBaseFeePerGas();
-//        BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas);
-//        AtomicBoolean profitable = new AtomicBoolean(false);
-//
-//        List<Path> profitablePaths = exploitablePaths.parallelStream().filter((ePath) -> {
-//            if (profitable.get()) return false;
-//            ePath.setBaseFeePerGas(baseFeePerGas);
-//            ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
-//            try {
-//                ePath.simulate();
-//                if (ePath.getNetProfit().compareTo(ZERO) > 0) {
-//                    profitable.set(true);
-//                    return true;
-//                }
-//                return false;
-//            }
-//            catch (GasEstimationFailureException exception) {
-//                return false;
-//            }
-//        }).sorted(Collections.reverseOrder()).toList();
-//        if (profitablePaths.isEmpty()) return Collections.emptyList();
-//
-//        profitablePaths.parallelStream().forEach(Path::buildSignedTransaction);
-//
-//        for (Path profitablePath : profitablePaths) {
-//            BigDecimal profit = new BigDecimal(profitablePath.getNetProfit());
-//            System.out.println("Profit in ETH: " + profit.divide(BigDecimal.TEN.pow(18), MathContext.DECIMAL32));
-//        }
-//        return profitablePaths;
+        List<Path> pathsWithValueExtractable = paths.parallelStream().filter(Path::isValueExtractable).toList();
+        if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
+
+        // Initialize State for parallel processing
+        pathsWithValueExtractable.forEach(
+                path -> path.getTrades().forEach(trade -> trade.getPool().getState().initialize()));
+
+        List<Path> exploitablePaths = pathsWithValueExtractable.parallelStream().filter(path -> {
+            try {
+                path.calculateOptimalTradingVolume();
+                path.getTrades().forEach(trade -> trade.getPool().getState().reset());
+                path.populateInputAndOutputTradeAmountsWithTicks();
+                path.calculateRevenue();
+                path.encodeCallData();
+                return true;
+            }
+            catch (ZeroAmountException | EthPriceRequestFailureException exception) {
+                return false;
+            }
+        }).sorted(Collections.reverseOrder()).toList();
+
+        // Clear State after parallel processing
+        pathsWithValueExtractable.forEach(
+                path -> path.getTrades().forEach(trade -> trade.getPool().getState().clear()));
+
+        if (exploitablePaths.isEmpty()) return Collections.emptyList();
+
+
+        exploitablePaths = exploitablePaths.subList(0, Math.min(exploitablePaths.size(), 100));
+
+        BigInteger baseFeePerGas = getBaseFeePerGas();
+        BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas);
+        AtomicBoolean profitable = new AtomicBoolean(false);
+
+        List<Path> profitablePaths = exploitablePaths.parallelStream().filter((ePath) -> {
+            if (profitable.get()) return false;
+            ePath.setBaseFeePerGas(baseFeePerGas);
+            ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
+            try {
+                ePath.simulate();
+                if (ePath.getNetProfit().compareTo(ZERO) > 0) {
+                    profitable.set(true);
+                    return true;
+                }
+                return false;
+            }
+            catch (GasEstimationFailureException exception) {
+                return false;
+            }
+        }).sorted(Collections.reverseOrder()).toList();
+        if (profitablePaths.isEmpty()) return Collections.emptyList();
+
+        profitablePaths.parallelStream().forEach(Path::buildSignedTransaction);
+
+        for (Path profitablePath : profitablePaths) {
+            BigDecimal profit = new BigDecimal(profitablePath.getNetProfit());
+            System.out.println("Profit in ETH: " + profit.divide(BigDecimal.TEN.pow(18), MathContext.DECIMAL32));
+        }
+        return profitablePaths;
     }
 
     private void getData(List<Path> paths) {
