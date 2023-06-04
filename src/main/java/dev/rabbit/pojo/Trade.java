@@ -1,5 +1,6 @@
 package dev.rabbit.pojo;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.cloud.Tuple;
 import com.google.common.base.Preconditions;
 import dev.rabbit.pool.Pool;
@@ -22,6 +23,7 @@ public class Trade {
     @Setter
     private BigInteger amountOut;
 
+    @JsonIgnore
     public Tuple<BigInteger, BigInteger> getOrderedReserves() {
         BigInteger reserve0 = pool.getReserve0();
         BigInteger reserve1 = pool.getReserve1();
@@ -29,6 +31,7 @@ public class Trade {
     }
 
     // Returns back the amountIn or whatever would be the amountIn to swap up the nearest initialized tick
+    @JsonIgnore
     public BigInteger getFullInputAmountOrToFirstTick() {
         Preconditions.checkState(amountIn != null, "amountIn field is null");
         return pool.getFullInputAmountOrToFirstTick(amountIn, ordered);
