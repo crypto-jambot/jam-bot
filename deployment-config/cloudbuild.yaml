@@ -38,6 +38,7 @@ steps:
         '$_SERVICE_ACCOUNT',
         '--memory=$_MEMORY',
         '--cpu=$_CPU',
+        '--cpu-boost',
         '--concurrency=$_CONCURRENCY',
         '--min-instances=$_MIN_INSTANCES',
         '--set-env-vars',
@@ -55,11 +56,11 @@ substitutions:
   _REGION: us-central1
   _SERVICE_ACCOUNT: jam-bot@crypto-351521.iam.gserviceaccount.com
   _SERVICE_NAME: jam-bot
-  _MEMORY: 3Gi
-  _CPU: 4000m
+  _MEMORY: 8Gi
+  _CPU: 6000m
   _MIN_INSTANCES: "1"
-  _CONCURRENCY: "20"
-  _JAVA_OPTS: "-Xmx2600m -Xms2600m"
+  _CONCURRENCY: "200"
+  _JAVA_OPTS: "-Xmx7000m -Xms7000m"
   _DATABASE: ethereum
   _DB_USER: jam
   _CLUSTER_URL: ethereum.oovx2.mongodb.net
