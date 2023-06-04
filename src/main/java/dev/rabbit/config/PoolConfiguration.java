@@ -33,6 +33,6 @@ public class PoolConfiguration {
                 throw PoolClassNotFoundException.of(poolClassName);
             }
         }
-        return new PoolFactory(poolTypes, new HashMap<>());
+        return new PoolFactory(poolTypes);
     }
 }

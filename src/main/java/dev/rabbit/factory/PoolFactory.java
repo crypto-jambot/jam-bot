@@ -12,9 +12,8 @@ import java.util.Map;
 @AllArgsConstructor
 public class PoolFactory {
     private final Map<String, Class<? extends Pool<? extends State>>> poolTypes;
-    private final Map<String, Pool<? extends State>> pools;
 
-    public Pool<? extends State> createPool(Tree.Swap.Exchange exchange) {
+    public Pool<? extends State> createPool(Tree.Swap.Exchange exchange, Map<String, Pool<? extends State>> pools) {
         Class<? extends Pool<? extends State>> poolClass = poolTypes.get(exchange.name());
         if (poolClass == null) {
             throw new IllegalArgumentException("Unsupported protocol type: " + exchange.name());
@@ -30,13 +29,5 @@ public class PoolFactory {
         }
 
         return pools.get(exchange.pool());
-    }
-
-    public void clearPools() {
-        pools.clear();
-    }
-
-    public Collection<Pool<? extends State>> getAllPools() {
-        return pools.values();
     }
 }

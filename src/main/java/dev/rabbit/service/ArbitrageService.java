@@ -4,11 +4,9 @@ import dev.rabbit.exception.EthPriceRequestFailureException;
 import dev.rabbit.exception.GasEstimationFailureException;
 import dev.rabbit.exception.RPCCallFailureException;
 import dev.rabbit.exception.ZeroAmountException;
-import dev.rabbit.factory.PoolFactory;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.pool.Pool;
 import dev.rabbit.pool.State;
-import dev.rabbit.spring.SpringContext;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,11 +25,14 @@ import java.math.MathContext;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.math.BigInteger.ONE;
+import static java.math.BigInteger.ZERO;
 
 @Service
 @AllArgsConstructor
@@ -64,7 +65,7 @@ public class ArbitrageService {
     }
 
     public List<Path> analyze(List<Path> paths) {
-        getData();
+        getData(paths);
 
         List<Path> pathsWithValueExtractable = paths.parallelStream().filter(Path::isValueExtractable).toList();
         if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
@@ -106,7 +107,7 @@ public class ArbitrageService {
             ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
             try {
                 ePath.simulate();
-                if (ePath.getNetProfit().compareTo(BigInteger.ZERO) > 0) {
+                if (ePath.getNetProfit().compareTo(ZERO) > 0) {
                     profitable.set(true);
                     return true;
                 }
@@ -127,8 +128,15 @@ public class ArbitrageService {
         return profitablePaths;
     }
 
-    private void getData() {
-        List<Pool<? extends State>> allPools = new ArrayList<>(SpringContext.getBean(PoolFactory.class).getAllPools());
+    private void getData(List<Path> paths) {
+        Set<Pool<? extends State>> allPoolsSet = new HashSet<>();
+        paths.forEach(path -> {
+            path.getTrades().forEach(trade -> {
+                allPoolsSet.add(trade.getPool());
+            });
+        });
+        List<Pool<? extends State>> allPools = new ArrayList<>(allPoolsSet);
+
         List<List<Pool<? extends State>>> allPoolsListSet = splitList(allPools, 2500);
 
         for (List<Pool<? extends State>> pools : allPoolsListSet) {
