@@ -2,7 +2,6 @@ package dev.rabbit.exception;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 public class GasEstimationFailureException extends Exception {
     public static Map<String, Integer> errors = new HashMap<>();

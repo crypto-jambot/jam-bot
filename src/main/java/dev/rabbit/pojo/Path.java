@@ -44,6 +44,7 @@ import java.util.function.Supplier;
 
 import static dev.rabbit.utils.Constants.DEPLOYER_ADDRESS;
 import static dev.rabbit.utils.Constants.JAM_BOT_V3_ADDRESS;
+import static dev.rabbit.utils.Constants.ONE_GWEI;
 import static dev.rabbit.utils.Constants.R2;
 import static dev.rabbit.utils.Constants.feeToPercent;
 import static dev.rabbit.utils.Constants.getERC20TransferFn;
@@ -356,7 +357,7 @@ public class Path implements Comparable<Path> {
         try {
             response = SpringContext.getBean(Web3j.class).ethEstimateGas(transaction).send();
             if (!ObjectUtils.isEmpty(response.getError())) {
-                throw GasEstimationFailureException.of(response.getError().getMessage());
+                throw GasEstimationFailureException.of();
             }
             // Usually the real amount of gas used is slightly less than estimated
             gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
@@ -365,28 +366,23 @@ public class Path implements Comparable<Path> {
         }
 
         netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));
-        maxPriorityFeePerGas = ZERO;
-        netProfit = netProfitAfterBaseFee;
-//        BigInteger lowerBoundPriority = ONE_GWEI;
-//        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
-//        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
-//        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
-//        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
-//            this.maxPriorityFeePerGas = lowerBoundPriority;
-//        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
-//            this.maxPriorityFeePerGas = higherBoundPriority;
-//        } else {
-//            this.maxPriorityFeePerGas = validatorSharePerGas;
-//        }
-        // This gives all profit to the proposer. This value is also set as the max gas total if used.
-//        this.maxPriorityFeePerGas = new BigInteger(String.valueOf(this.profitBeforeGasInEther.setScale(0, RoundingMode.HALF_DOWN))).divide(this.gasUsed);
-//        this.netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
-//        this.netProfit = ZERO;
+        BigInteger lowerBoundPriority = ONE_GWEI;
+        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
+        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
+        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(10)).divide(BigInteger.valueOf(100));
+        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
+            maxPriorityFeePerGas = lowerBoundPriority;
+        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
+            maxPriorityFeePerGas = higherBoundPriority;
+        } else {
+            maxPriorityFeePerGas = validatorSharePerGas;
+        }
+        netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
     }
 
     public void buildSignedTransaction() {
-        String startToken = this.trades.getFirst().getStart().getAddress();
-        String target = this.trades.getLast().getPool().getAddress();
+        String startToken = trades.getFirst().getStart().getAddress();
+        String target = trades.getLast().getPool().getAddress();
 
         String data = FunctionEncoder.encode(getJamExecuteTradeFn(startToken, target, callData));
 
@@ -405,7 +401,6 @@ public class Path implements Comparable<Path> {
                 data,
                 maxPriorityFeePerGas,
                 maxBaseFeeInFutureBlock.add(maxPriorityFeePerGas)
-//                this.maxPriorityFeePerGas
         );
         byte[] signedTransaction = TransactionEncoder.signMessage(transaction, SpringContext.getBean(Wallet.class).getAccount(0).getCredentials());
         this.signedTransaction = Numeric.toHexString(signedTransaction);

@@ -29,9 +29,7 @@ public abstract class Pool<T extends State> {
     }
 
     public abstract List<Request<?, EthCall>> getRequestsForData();
-    public abstract List<Request<?, EthCall>> getSecondaryRequestsForData();
     public abstract void assignData(List<Response<?>> responses);
-    public abstract void assignSecondaryData(List<Response<?>> responses);
     public abstract BigInteger getReserve0();
     public abstract BigInteger getReserve1();
     public abstract BigInteger computeAmountOutNoTicks(BigInteger amountIn, boolean ordered);

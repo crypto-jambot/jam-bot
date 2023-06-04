@@ -40,7 +40,6 @@ public class Constants {
     }
 
     public static final String NULL_ADDRESS = "0x0000000000000000000000000000000000000000";
-//    public static final String DEPLOYER_ADDRESS = "0x3BfFe20e72b0c90752EbBEcBd1805e8b25ef35F5";
     public static final String DEPLOYER_ADDRESS = "0x3BfFe20e72b0c90752EbBEcBd1805e8b25ef35F5";
     /**
      * Old Contract used for only uniswap v2 pools

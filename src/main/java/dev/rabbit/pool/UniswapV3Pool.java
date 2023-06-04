@@ -118,19 +118,6 @@ public class UniswapV3Pool extends Pool<V3State> {
     }
 
     @Override
-    public List<Request<?, EthCall>> getSecondaryRequestsForData() {
-        Web3j web3j = SpringContext.getBean(Web3j.class);
-        BigInteger currentWordPosition = position(state.getTick()).x();
-        return List.of(
-                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition)), DefaultBlockParameterName.LATEST),
-                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.add(ONE))), DefaultBlockParameterName.LATEST),
-                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.subtract(ONE))), DefaultBlockParameterName.LATEST));
-//                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3TickEncodedFn(state.getTick())), DefaultBlockParameterName.LATEST));
-//                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.add(TWO))), DefaultBlockParameterName.LATEST),
-//                web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, getV3BitmapValueEncodedFn(currentWordPosition.subtract(TWO))), DefaultBlockParameterName.LATEST));
-    }
-
-    @Override
     public void assignData(List<Response<?>> responses) {
         Response<?> liquidityResponse = responses.get(0);
         List<Type> liquidityOutputTypes = FunctionReturnDecoder.decode((String) liquidityResponse.getResult(), V3_LIQUIDITY_FN.getOutputParameters());
@@ -140,23 +127,6 @@ public class UniswapV3Pool extends Pool<V3State> {
         List<Type> slot0OutputTypes = FunctionReturnDecoder.decode((String) slot0Response.getResult(), V3_SLOT0_FN.getOutputParameters());
         state.setSqrtPriceX96((BigInteger) slot0OutputTypes.get(0).getValue());
         state.setTick((BigInteger) slot0OutputTypes.get(1).getValue());
-    }
-
-    @Override
-    public void assignSecondaryData(List<Response<?>> responses) {
-        BigInteger currentWordPosition = position(state.getTick()).x();
-
-        List<Type> bitmapResponse0OutputTypes = FunctionReturnDecoder.decode((String) responses.get(0).getResult(), getV3BitmapValueFn(currentWordPosition).getOutputParameters());
-        List<Type> bitmapResponse1OutputTypes = FunctionReturnDecoder.decode((String) responses.get(1).getResult(), getV3BitmapValueFn(currentWordPosition.add(ONE)).getOutputParameters());
-        List<Type> bitmapResponse2OutputTypes = FunctionReturnDecoder.decode((String) responses.get(2).getResult(), getV3BitmapValueFn(currentWordPosition.subtract(ONE)).getOutputParameters());
-//        List<Type> tickResponseOutputTypes = FunctionReturnDecoder.decode((String) responses.get(3).getResult(), getV3TickFn(state.getTick()).getOutputParameters());
-//        List<Type> bitmapResponse4OutputTypes = FunctionReturnDecoder.decode((String) responses.get(4).getResult(), getV3BitmapValueFn(currentWordPosition.subtract(TWO)).getOutputParameters());
-
-        tickBitmap.put(currentWordPosition, (BigInteger) bitmapResponse0OutputTypes.get(0).getValue());
-        tickBitmap.put(currentWordPosition.add(ONE), (BigInteger) bitmapResponse1OutputTypes.get(0).getValue());
-        tickBitmap.put(currentWordPosition.subtract(ONE), (BigInteger) bitmapResponse2OutputTypes.get(0).getValue());
-//        ticks.put(state.getTick(), new Tuple8<>((BigInteger) tickResponseOutputTypes.get(0).getValue(), (BigInteger) tickResponseOutputTypes.get(1).getValue(), (BigInteger) tickResponseOutputTypes.get(2).getValue(), (BigInteger) tickResponseOutputTypes.get(3).getValue(), (BigInteger) tickResponseOutputTypes.get(4).getValue(), (BigInteger) tickResponseOutputTypes.get(5).getValue(), (BigInteger) tickResponseOutputTypes.get(6).getValue(), (Boolean) tickResponseOutputTypes.get(7).getValue()));
-//        tickBitmap.put(currentWordPosition.subtract(TWO), (BigInteger) bitmapResponse4OutputTypes.get(0).getValue());
     }
 
     @Override

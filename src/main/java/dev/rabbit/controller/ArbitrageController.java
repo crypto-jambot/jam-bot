@@ -17,15 +17,24 @@ import dev.rabbit.service.MongoService;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageHeaders;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.web3j.protocol.Web3j;
 
+import java.io.IOException;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 
 import static dev.rabbit.record.Body.PubSubMessage;
+import static java.math.BigInteger.ONE;
+import static java.math.BigInteger.TWO;
 
 @RestController
 @AllArgsConstructor
@@ -37,14 +46,23 @@ public class ArbitrageController {
     private final BundleService bundleService;
     private final PubSubOutboundGateway pubSubOutboundGateway;
     private final MongoService mongoService;
+    private final Web3j web3j;
 
 
     @PostMapping(value = "/")
-    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException,
-            RPCCallFailureException {
+    public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
         verifyMessageFormat(body);
         try {
-            arbitrageService.analyze(derivePaths(parseBody(body)));
+            Trees treesObj = parseBody(body);
+            List<Path> profitablePaths = arbitrageService.analyze(derivePaths(treesObj.getTrees()));
+            if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
+            BigInteger currentBlockNumber = getCurrentBlockNumber();
+            bundleService.sendBundles(treesObj.getId(), currentBlockNumber, profitablePaths);
+            for (Path path : profitablePaths) {
+                Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(path),
+                        new MessageHeaders(Map.of("triggeringPool", treesObj.getId(), "targetBlock1", currentBlockNumber.add(ONE), "targetBlock2", currentBlockNumber.add(TWO))));
+                pubSubOutboundGateway.sendToPubsub(message);
+            }
             return ResponseEntity.accepted().build();
         }
         finally {
@@ -63,11 +81,10 @@ public class ArbitrageController {
         }
     }
 
-    private List<Tree> parseBody(Body body) throws JsonProcessingException {
+    private Trees parseBody(Body body) throws JsonProcessingException {
         String messageData = new String(Base64.getDecoder().decode(body.message().data()));
         JsonNode root = mapper.readTree(messageData);
-        Trees trees = mongoService.pullTrees(root.get("id").asText(), root.get("ordered").asText());
-        return trees.getTrees();
+        return mongoService.pullTrees(root.get("id").asText(), root.get("ordered").asText());
     }
 
     private List<Path> derivePaths(List<Tree> trees) {
@@ -83,12 +100,12 @@ public class ArbitrageController {
         });
         return paths;
     }
-}
 
-//        REFERENCE - To be deleted
-//        if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
-//        bundleService.sendBundles(profitablePaths);
-//        //Publish message
-//        Message<String> message = MessageBuilder.createMessage(mapper.writeValueAsString(profitablePaths.get(0)),
-//                new MessageHeaders(Collections.emptyMap()));
-//        pubSubOutboundGateway.sendToPubsub(message);
+    private BigInteger getCurrentBlockNumber() {
+        try {
+            return web3j.ethBlockNumber().send().getBlockNumber();
+        } catch (IOException exception) {
+            throw RPCCallFailureException.of("Failure to get current block number", exception);
+        }
+    }
+}

@@ -11,7 +11,6 @@ import dev.rabbit.pool.State;
 import dev.rabbit.spring.SpringContext;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.BatchRequest;
@@ -31,7 +30,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.math.BigInteger.ONE;
 
@@ -75,9 +73,6 @@ public class ArbitrageService {
         pathsWithValueExtractable.forEach(
                 path -> path.getTrades().forEach(trade -> trade.getPool().getState().initialize()));
 
-        System.out.println("Total value extractable paths: " + pathsWithValueExtractable.size());
-        AtomicInteger countYe = new AtomicInteger(0);
-
         List<Path> exploitablePaths = pathsWithValueExtractable.parallelStream().filter(path -> {
             try {
                 path.calculateOptimalTradingVolume();
@@ -87,16 +82,8 @@ public class ArbitrageService {
                 path.encodeCallData();
                 return true;
             }
-            catch (ZeroAmountException exception) {
+            catch (ZeroAmountException | EthPriceRequestFailureException exception) {
                 return false;
-            }
-            catch (EthPriceRequestFailureException exception) {
-                log.error(ExceptionUtils.getStackTrace(exception));
-                return false;
-            }
-            finally {
-                System.out.println(
-                        "Count so far: " + countYe.incrementAndGet() + " of " + pathsWithValueExtractable.size());
             }
         }).sorted(Collections.reverseOrder()).toList();
 
@@ -119,29 +106,20 @@ public class ArbitrageService {
             ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
             try {
                 ePath.simulate();
-                if (ePath.getNetProfit().compareTo(BigInteger.ZERO) <= 0) {
+                if (ePath.getNetProfit().compareTo(BigInteger.ZERO) > 0) {
                     profitable.set(true);
+                    return true;
                 }
-                return true;
+                return false;
             }
             catch (GasEstimationFailureException exception) {
                 return false;
             }
         }).sorted(Collections.reverseOrder()).toList();
-
-
         if (profitablePaths.isEmpty()) return Collections.emptyList();
-        System.out.println("Total Errors: " + GasEstimationFailureException.totalErrors);
-
-        GasEstimationFailureException.errors.forEach(
-                (key, value) -> System.out.printf("Error: %s | Occurrences: %d\n", key, value));
 
         profitablePaths.parallelStream().forEach(Path::buildSignedTransaction);
 
-        System.out.println("Total Number of Paths: " + paths.size());
-        System.out.println("Total Number of Valuable Extractable Paths: " + pathsWithValueExtractable.size());
-        System.out.println("Total Number of Exploitable Paths: " + exploitablePaths.size());
-        System.out.println("Total Number of Profitable Paths: " + profitablePaths.size());
         for (Path profitablePath : profitablePaths) {
             BigDecimal profit = new BigDecimal(profitablePath.getNetProfit());
             System.out.println("Profit in ETH: " + profit.divide(BigDecimal.TEN.pow(18), MathContext.DECIMAL32));
@@ -152,7 +130,6 @@ public class ArbitrageService {
     private void getData() {
         List<Pool<? extends State>> allPools = new ArrayList<>(SpringContext.getBean(PoolFactory.class).getAllPools());
         List<List<Pool<? extends State>>> allPoolsListSet = splitList(allPools, 2500);
-        List<List<Pool<? extends State>>> allPoolsListSet2 = splitList(allPools, 2000);
 
         for (List<Pool<? extends State>> pools : allPoolsListSet) {
             BatchRequest batchRequest = new BatchRequest(httpService);
@@ -176,30 +153,6 @@ public class ArbitrageService {
                 throw RPCCallFailureException.of("Failed to retrieve initial data for pools", exception);
             }
         }
-
-//        for (List<Pool<? extends State>> pools : allPoolsListSet2) {
-//            BatchRequest batchRequest = new BatchRequest(httpService);
-//
-//            for (int i = 0; i < pools.size(); i++) {
-//                List<Request<?, EthCall>> requests = pools.get(i).getSecondaryRequestsForData();
-//                if (requests == null) continue;
-//                for (Request<?, EthCall> request : requests) {
-//                    request.setId(i);
-//                    batchRequest.add(request);
-//                }
-//            }
-//
-//            if (batchRequest.getRequests().size() == 0) continue;
-//            try {
-//                List<? extends Response<?>> responses = batchRequest.send().getResponses();
-//                Map<Integer, List<Response<?>>> idToResponseMap = groupResponsesById(responses);
-//                for (Map.Entry<Integer, List<Response<?>>> entry : idToResponseMap.entrySet()) {
-//                    pools.get(entry.getKey()).assignSecondaryData(entry.getValue());
-//                }
-//            } catch (IOException exception) {
-//                throw RPCCallFailureException.of("Failed to retrieve initial data for pools", exception);
-//            }
-//        }
     }
 
     private Map<Integer, List<Response<?>>> groupResponsesById(List<? extends Response<?>> responses) {
@@ -215,7 +168,6 @@ public class ArbitrageService {
 
     private BigInteger getBaseFeePerGas() {
         try {
-//            System.out.println(web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock().getNumber());
             return web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send().getBlock()
                     .getBaseFeePerGas();
         }

@@ -48,12 +48,7 @@ public class UniswapV2Pool extends Pool<V2State> {
         return List.of(web3j.ethCall(Transaction.createEthCallTransaction(NULL_ADDRESS, address, V2_GET_RESERVES_ENCODED_FN), DefaultBlockParameterName.LATEST));
     }
 
-    @Override
-    public List<Request<?, EthCall>> getSecondaryRequestsForData() {
-        return null;
-    }
 
-    ;
     @Override
     public void assignData(List<Response<?>> responses) {
         responses.forEach(response -> {
@@ -61,11 +56,6 @@ public class UniswapV2Pool extends Pool<V2State> {
             state.setReserve0((BigInteger) type.get(0).getValue());
             state.setReserve1((BigInteger) type.get(1).getValue());
         });
-    }
-
-    @Override
-    public void assignSecondaryData(List<Response<?>> responses) {
-        // No logic
     }
 
     @Override
