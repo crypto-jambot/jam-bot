@@ -61,7 +61,7 @@ spring:
     gcp:
       pubsub:
         publisher:
-          executor-threads: 10
+          executor-threads: 1
 mongo:
   user: jam
   projectId: crypto-351521
