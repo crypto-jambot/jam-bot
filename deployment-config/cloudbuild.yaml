@@ -55,11 +55,11 @@ substitutions:
   _REGION: us-central1
   _SERVICE_ACCOUNT: jam-bot@crypto-351521.iam.gserviceaccount.com
   _SERVICE_NAME: jam-bot
-  _MEMORY: 1.5Gi
-  _CPU: 2000m
-  _MIN_INSTANCES: "5"
+  _MEMORY: 3Gi
+  _CPU: 4000m
+  _MIN_INSTANCES: "1"
   _CONCURRENCY: "20"
-  _JAVA_OPTS: "-Xmx1400m -Xms1400m"
+  _JAVA_OPTS: "-Xmx2600m -Xms2600m"
   _DATABASE: ethereum
   _DB_USER: jam
   _CLUSTER_URL: ethereum.oovx2.mongodb.net
