@@ -1,6 +1,5 @@
 package dev.rabbit.config;
 
-import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -8,7 +7,6 @@ import org.web3j.crypto.Credentials;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.http.HttpService;
 
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 @Configuration
@@ -31,7 +29,7 @@ public class Web3Configuration {
                 .connectTimeout(10, TimeUnit.MINUTES)
                 .writeTimeout(10, TimeUnit.MINUTES)
                 .readTimeout(10, TimeUnit.MINUTES)
-                .dispatcher(new Dispatcher(Executors.newCachedThreadPool()))
+//                .dispatcher(new Dispatcher(Executors.newCachedThreadPool()))
                 .build();
     }
 
