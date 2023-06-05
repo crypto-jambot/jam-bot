@@ -65,7 +65,6 @@ public class ValueConverter {
                 throw EthPriceRequestFailureException.of(token.getSymbol());
             }
         }
-        System.out.println("TEST");
         return tokens.get(token.getAddress()).getSecond();
     }
 
