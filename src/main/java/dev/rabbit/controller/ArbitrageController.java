@@ -34,6 +34,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.rabbit.record.Body.PubSubMessage;
 import static java.math.BigInteger.ONE;
@@ -43,6 +44,7 @@ import static java.math.BigInteger.TWO;
 @AllArgsConstructor
 public class ArbitrageController {
 
+    private static final AtomicInteger count = new AtomicInteger(1);
     private final ObjectMapper mapper;
     private final PoolFactory poolFactory;
     private final ArbitrageService arbitrageService;
@@ -55,7 +57,15 @@ public class ArbitrageController {
     public ResponseEntity<Void> receiveMessage(@RequestBody Body body) throws JsonProcessingException {
         verifyMessageFormat(body);
         Trees treesObj = parseBody(body);
-        List<Path> profitablePaths = arbitrageService.analyze(derivePaths(treesObj.getTrees()));
+        List<Path> paths = derivePaths(treesObj.getTrees());
+        List<Path> profitablePaths = null;
+        try {
+            profitablePaths = arbitrageService.analyze(paths);
+        }
+        finally {
+            System.gc();
+            System.out.println(count.getAndIncrement());
+        }
         if (profitablePaths.isEmpty()) return ResponseEntity.accepted().build();
         BigInteger currentBlockNumber = getCurrentBlockNumber();
         bundleService.sendBundles(treesObj.getId(), currentBlockNumber, profitablePaths);
@@ -66,6 +76,7 @@ public class ArbitrageController {
                                     "targetBlock2", currentBlockNumber.add(TWO))));
             pubSubOutboundGateway.sendToPubsub(message);
         }
+
         return ResponseEntity.accepted().build();
     }
 
@@ -98,6 +109,7 @@ public class ArbitrageController {
                 if (end.equals(startToken)) paths.add(Path.of(path));
             }), path::removeLast);
         });
+        pools.clear();
         return paths;
     }
 

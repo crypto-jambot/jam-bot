@@ -69,7 +69,3 @@ mongo:
   url: mongodb+srv://${DB_USER:test}:%s@${CLUSTER_URL:test.test.test}/?retryWrites=true&w=majority
 pubsub:
   topic: projects/crypto-351521/topics/transactions
-server:
-  tomcat:
-    threads:
-      max: 500

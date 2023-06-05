@@ -9,7 +9,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.util.Pair;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.MathContext;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static dev.rabbit.utils.Constants.WETH_ADDRESS;
 
@@ -26,41 +27,51 @@ import static dev.rabbit.utils.Constants.WETH_ADDRESS;
 @AllArgsConstructor
 @Slf4j
 public class ValueConverter {
+    private static final String URL = "https://min-api.cryptocompare.com/data/price?fsym=%s&tsyms=ETH";
     private final OkHttpClient okHttpClient;
     private final ObjectMapper mapper;
-    private static final String URL = "https://min-api.cryptocompare.com/data/price?fsym=%s&tsyms=ETH";
+    private final Map<String, Pair<Long, Double>> tokens = new ConcurrentHashMap<>();
+
 
     public BigDecimal deriveEtherValue(Double ethPrice, BigInteger profitBeforeGas) {
         return BigDecimal.valueOf(ethPrice).multiply(new BigDecimal(profitBeforeGas), MathContext.DECIMAL128);
     }
 
-    @Cacheable(value="token", key="#token")
     public Double makeRequest(Token token) throws EthPriceRequestFailureException {
-        if(token.getAddress().equalsIgnoreCase(WETH_ADDRESS)) return Double.valueOf("1.0");
-        Request request = new Request.Builder()
-                .url(String .format(URL, token.getSymbol()))
-                .build();
-        try(Response response = okHttpClient.newCall(request).execute()) {
-            if (ObjectUtils.isEmpty(response) || ObjectUtils.isEmpty(response.body())) {
+        if (token.getAddress().equalsIgnoreCase(WETH_ADDRESS)) return Double.valueOf("1.0");
+        if (!tokens.containsKey(token.getAddress()) ||
+                System.currentTimeMillis() - tokens.get(token.getAddress()).getFirst() >= 300000000L) {
+            Request request = new Request.Builder()
+                    .url(String.format(URL, token.getSymbol()))
+                    .build();
+            try (Response response = okHttpClient.newCall(request).execute()) {
+                if (ObjectUtils.isEmpty(response) || ObjectUtils.isEmpty(response.body())) {
+                    throw EthPriceRequestFailureException.of(token.getSymbol());
+                }
+                String result = response.body().string();
+                if (ObjectUtils.isEmpty(result)) {
+                    throw EthPriceRequestFailureException.of(token.getSymbol());
+                }
+                Map<String, Double> responseMap = mapper.readValue(result, Map.class);
+                System.out.println(responseMap);
+                Double ethPrice = responseMap.get("ETH");
+                if (ethPrice == null) {
+                    throw EthPriceRequestFailureException.of(token.getSymbol());
+                }
+                tokens.put(token.getAddress(), Pair.of(System.currentTimeMillis(), ethPrice));
+                return ethPrice;
+            }
+            catch (IOException e) {
                 throw EthPriceRequestFailureException.of(token.getSymbol());
             }
-            String result = response.body().string();
-            if (ObjectUtils.isEmpty(result)) {
-                throw EthPriceRequestFailureException.of(token.getSymbol());
-            }
-            Map<String, Double> responseMap =  mapper.readValue(result, Map.class);
-            Double ethPrice = responseMap.get("ETH");
-            if (ethPrice == null) {
-                throw EthPriceRequestFailureException.of(token.getSymbol());
-            }
-            return ethPrice;
-        } catch (IOException e) {
-            throw EthPriceRequestFailureException.of(token.getSymbol());
         }
+        System.out.println("TEST");
+        return tokens.get(token.getAddress()).getSecond();
     }
 
     @CacheEvict(value = "token", allEntries = true)
     @Scheduled(fixedDelay = 300000)
-    public void evictCache() {}
+    public void evictCache() {
+    }
 
 }
