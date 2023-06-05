@@ -366,18 +366,19 @@ public class Path implements Comparable<Path> {
         }
 
         netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));
-        BigInteger lowerBoundPriority = ONE_GWEI;
-        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
-        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(this.gasUsed);
-        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(10)).divide(BigInteger.valueOf(100));
-        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
-            maxPriorityFeePerGas = lowerBoundPriority;
-        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
-            maxPriorityFeePerGas = higherBoundPriority;
-        } else {
-            maxPriorityFeePerGas = validatorSharePerGas;
-        }
-        netProfit = netProfitAfterBaseFee.subtract(this.gasUsed.multiply(this.maxPriorityFeePerGas));
+//        BigInteger lowerBoundPriority = ONE_GWEI;
+//        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
+        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(gasUsed);
+        BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
+//        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
+//            maxPriorityFeePerGas = lowerBoundPriority;
+//        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
+//            maxPriorityFeePerGas = higherBoundPriority;
+//        } else {
+//            maxPriorityFeePerGas = validatorSharePerGas;
+//        }
+        maxPriorityFeePerGas = baseFeePerGas.add(validatorSharePerGas);
+        netProfit = netProfitAfterBaseFee.subtract(gasUsed.multiply(validatorSharePerGas));
     }
 
     public void buildSignedTransaction() {
@@ -400,7 +401,7 @@ public class Path implements Comparable<Path> {
                 ZERO,
                 data,
                 maxPriorityFeePerGas,
-                maxBaseFeeInFutureBlock.add(maxPriorityFeePerGas)
+                maxPriorityFeePerGas
         );
         byte[] signedTransaction = TransactionEncoder.signMessage(transaction, SpringContext.getBean(Wallet.class).getAccount(0).getCredentials());
         this.signedTransaction = Numeric.toHexString(signedTransaction);
@@ -409,6 +410,6 @@ public class Path implements Comparable<Path> {
     @Override
     public int compareTo(@NotNull Path o) {
         Preconditions.checkState(profitBeforeGasInEther != null, "Cannot compare paths because the profitBeforeGasInEther field is null");
-        return (!ObjectUtils.isEmpty(netProfit) && !ObjectUtils.isEmpty(o.netProfit)) ? netProfit.compareTo(o.netProfit) : profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
+        return (!ObjectUtils.isEmpty(netProfitAfterBaseFee) && !ObjectUtils.isEmpty(o.netProfitAfterBaseFee)) ? netProfitAfterBaseFee.compareTo(o.netProfitAfterBaseFee) : profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
 }

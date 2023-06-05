@@ -41,6 +41,7 @@ steps:
         '--cpu-boost',
         '--concurrency=$_CONCURRENCY',
         '--min-instances=$_MIN_INSTANCES',
+        '--execution-environment=$_EXECUTION_ENVIRONMENT',
         '--set-env-vars',
         'JAVA_OPTS=$_JAVA_OPTS',
         '--set-env-vars',
@@ -59,11 +60,12 @@ substitutions:
   _SERVICE_ACCOUNT: jam-bot@crypto-351521.iam.gserviceaccount.com
   _SERVICE_NAME: jam-bot
   _MEMORY: 4Gi
-  _CPU: 2000m
+  _CPU: 4000m
   _MIN_INSTANCES: "10"
-  _CONCURRENCY: "10"
+  _CONCURRENCY: "5"
   _JAVA_OPTS: "-Xmx3500m -Xms3500m -XX:NativeMemoryTracking=summary -XX:+UnlockDiagnosticVMOptions -XX:+PrintNMTStatistics"
   _JAVA_TOOL_OPTIONS: "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+  _EXECUTION_ENVIRONMENT: gen2
   _DATABASE: ethereum
   _DB_USER: jam
   _CLUSTER_URL: ethereum.oovx2.mongodb.net

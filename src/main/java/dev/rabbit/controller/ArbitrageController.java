@@ -63,6 +63,7 @@ public class ArbitrageController {
             profitablePaths = arbitrageService.analyze(paths);
         }
         finally {
+            paths = null;
             System.gc();
             System.out.println(count.getAndIncrement());
         }

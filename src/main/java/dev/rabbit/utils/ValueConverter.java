@@ -53,7 +53,6 @@ public class ValueConverter {
                     throw EthPriceRequestFailureException.of(token.getSymbol());
                 }
                 Map<String, Double> responseMap = mapper.readValue(result, Map.class);
-                System.out.println(responseMap);
                 Double ethPrice = responseMap.get("ETH");
                 if (ethPrice == null) {
                     throw EthPriceRequestFailureException.of(token.getSymbol());
@@ -67,10 +66,4 @@ public class ValueConverter {
         }
         return tokens.get(token.getAddress()).getSecond();
     }
-
-    @CacheEvict(value = "token", allEntries = true)
-    @Scheduled(fixedDelay = 300000)
-    public void evictCache() {
-    }
-
 }

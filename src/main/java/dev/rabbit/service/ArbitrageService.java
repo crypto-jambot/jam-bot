@@ -9,7 +9,6 @@ import dev.rabbit.pool.Pool;
 import dev.rabbit.pool.State;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.OkHttpClient;
 import org.springframework.stereotype.Service;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.BatchRequest;
@@ -30,7 +29,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.math.BigInteger.ONE;
@@ -43,7 +41,6 @@ public class ArbitrageService {
 
     private final HttpService httpService;
     private final Web3j web3j;
-    private final OkHttpClient okHttpClient;
 
     public static <T> List<List<T>> splitList(List<T> originalList, int chunkSize) {
         List<List<T>> subLists = new ArrayList<>();
@@ -81,17 +78,21 @@ public class ArbitrageService {
         List<Path> exploitablePaths = pathsWithValueExtractable.parallelStream().filter(path -> {
             try {
                 path.calculateOptimalTradingVolume();
+            }
+            catch (ZeroAmountException exception) {
+                return false;
+            } finally {
                 path.getTrades().forEach(trade -> trade.getPool().getState().reset());
+            }
+            try {
                 path.populateInputAndOutputTradeAmountsWithTicks();
                 path.calculateRevenue();
                 path.encodeCallData();
                 return true;
             }
-            catch (ZeroAmountException | EthPriceRequestFailureException exception) {
-                if (exception instanceof EthPriceRequestFailureException) {
-                    System.out.println("FAILURE TO RETRIEVE ETH VALUE FOR TOKEN");
-                    System.out.println(exception.getMessage());
-                }
+            catch (EthPriceRequestFailureException exception) {
+                System.out.println("FAILURE TO RETRIEVE ETH VALUE FOR TOKEN");
+                System.out.println(exception.getMessage());
                 return false;
             }
         }).sorted(Collections.reverseOrder()).toList();
@@ -115,7 +116,7 @@ public class ArbitrageService {
             ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
             try {
                 ePath.simulate();
-                if (ePath.getNetProfit().compareTo(ZERO) > 0) {
+                if (ePath.getNetProfitAfterBaseFee().compareTo(ZERO) > 0) {
                     profitable.set(true);
                     return true;
                 }
@@ -147,14 +148,8 @@ public class ArbitrageService {
 
         List<List<Pool<? extends State>>> allPoolsListSet = splitList(allPools, 2500);
 
-        HttpService httpService1 = new HttpService("https://rabbit.dev/http", new OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.MINUTES)
-                .writeTimeout(10, TimeUnit.MINUTES)
-                .readTimeout(10, TimeUnit.MINUTES)
-                .build());
-
         for (List<Pool<? extends State>> pools : allPoolsListSet) {
-            BatchRequest batchRequest = new BatchRequest(httpService1);
+            BatchRequest batchRequest = new BatchRequest(httpService);
 
             for (int i = 0; i < pools.size(); i++) {
                 List<Request<?, EthCall>> requests = pools.get(i).getRequestsForData();
@@ -175,7 +170,6 @@ public class ArbitrageService {
                 throw RPCCallFailureException.of("Failed to retrieve initial data for pools", exception);
             }
         }
-        httpService1 = null;
     }
 
     private Map<Integer, List<Response<?>>> groupResponsesById(List<? extends Response<?>> responses) {
