@@ -29,10 +29,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.math.BigInteger.ONE;
-import static java.math.BigInteger.ZERO;
 
 @Service
 @AllArgsConstructor
@@ -68,7 +66,7 @@ public class ArbitrageService {
     public List<Path> analyze(List<Path> paths) {
         getData(paths);
         System.gc();
-        List<Path> pathsWithValueExtractable = paths.parallelStream().filter(Path::isValueExtractable).toList();
+        List<Path> pathsWithValueExtractable = paths.parallelStream().filter(Path::isValueExtractable).sorted(Collections.reverseOrder()).toList();
         if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
 
         // Initialize State for parallel processing
@@ -103,35 +101,59 @@ public class ArbitrageService {
 
         if (exploitablePaths.isEmpty()) return Collections.emptyList();
 
-
-        exploitablePaths = exploitablePaths.subList(0, Math.min(exploitablePaths.size(), 100));
-
         BigInteger baseFeePerGas = getBaseFeePerGas();
         BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas);
-        AtomicBoolean profitable = new AtomicBoolean(false);
 
-        List<Path> profitablePaths = exploitablePaths.parallelStream().filter((ePath) -> {
-            if (profitable.get()) return false;
-            ePath.setBaseFeePerGas(baseFeePerGas);
-            ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
+        int count = 0;
+        int attempts = 0;
+        List<Path> profitablePaths = new ArrayList<>();
+        for (Path path : exploitablePaths) {
+            path.setBaseFeePerGas(baseFeePerGas);
+            path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
+            if (count >= 1) break;
+            if (attempts >= 10) break;
             try {
-                ePath.simulate();
-                if (ePath.getNetProfitAfterBaseFee().compareTo(ZERO) > 0) {
-                    profitable.set(true);
-                    return true;
-                }
-                return false;
+                path.simulate();
+                attempts++;
+                if (path.getNetProfitAfterBaseFee().compareTo(BigInteger.ZERO) <= 0) continue;
+                count++;
+                System.out.println(count);
+                profitablePaths.add(path);
             }
             catch (GasEstimationFailureException exception) {
-                return false;
+//                System.out.println(exception.getMessage());
             }
-        }).sorted(Collections.reverseOrder()).toList();
+        }
+
+//        exploitablePaths = exploitablePaths.subList(0, Math.min(exploitablePaths.size(), 100));
+//
+//        BigInteger baseFeePerGas = getBaseFeePerGas();
+//        BigInteger maxBaseFeeInFutureBlock = getMaxBaseFeeInFutureBlock(baseFeePerGas);
+//        AtomicBoolean profitable = new AtomicBoolean(false);
+//
+//        List<Path> profitablePaths = exploitablePaths.parallelStream().filter((ePath) -> {
+//            if (profitable.get()) return false;
+//            ePath.setBaseFeePerGas(baseFeePerGas);
+//            ePath.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
+//            try {
+//                ePath.simulate();
+//                if (ePath.getNetProfitAfterBaseFee().compareTo(ZERO) > 0) {
+//                    profitable.set(true);
+//                    return true;
+//                }
+//                return false;
+//            }
+//            catch (GasEstimationFailureException exception) {
+//                return false;
+//            }
+//        }).sorted(Collections.reverseOrder()).toList();
         if (profitablePaths.isEmpty()) return Collections.emptyList();
+        profitablePaths.sort(Collections.reverseOrder());
 
         profitablePaths.parallelStream().forEach(Path::buildSignedTransaction);
 
         for (Path profitablePath : profitablePaths) {
-            BigDecimal profit = new BigDecimal(profitablePath.getNetProfit());
+            BigDecimal profit = new BigDecimal(profitablePath.getNetProfitAfterBaseFee());
             System.out.println("Profit in ETH: " + profit.divide(BigDecimal.TEN.pow(18), MathContext.DECIMAL32));
         }
         return profitablePaths;

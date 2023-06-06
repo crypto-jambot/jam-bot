@@ -55,6 +55,7 @@ import static java.math.BigInteger.ZERO;
 @Getter
 public class Path implements Comparable<Path> {
     private final LinkedList<Trade> trades = new LinkedList<>();
+    private BigDecimal valueRatio;
     private BigInteger optimalTradingVolume = ZERO;
     private BigInteger profitBeforeGas;
     private BigDecimal profitBeforeGasInEther;
@@ -148,6 +149,7 @@ public class Path implements Comparable<Path> {
 
         BigDecimal leftOperand = new BigDecimal(leftOperandNumerator).divide(new BigDecimal(leftOperandDenominator), MathContext.DECIMAL128);
         BigDecimal rightOperand = rightOperandNumerator.divide(rightOperandDenominator, MathContext.DECIMAL128);
+        valueRatio = leftOperand;
         return leftOperand.compareTo(rightOperand) > 0;
     }
 
@@ -357,12 +359,12 @@ public class Path implements Comparable<Path> {
         try {
             response = SpringContext.getBean(Web3j.class).ethEstimateGas(transaction).send();
             if (!ObjectUtils.isEmpty(response.getError())) {
-                throw GasEstimationFailureException.of();
+                throw GasEstimationFailureException.of(response.getError().getMessage());
             }
             // Usually the real amount of gas used is slightly less than estimated
             gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
         } catch (IOException exception) {
-            throw GasEstimationFailureException.of(exception);
+            throw GasEstimationFailureException.of("Encountered an IO exception", exception);
         }
 
         netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));
@@ -409,6 +411,10 @@ public class Path implements Comparable<Path> {
 
     @Override
     public int compareTo(@NotNull Path o) {
+        if (profitBeforeGasInEther == null && o.profitBeforeGasInEther == null) {
+            return valueRatio.compareTo(o.valueRatio);
+        }
+
         Preconditions.checkState(profitBeforeGasInEther != null, "Cannot compare paths because the profitBeforeGasInEther field is null");
         return (!ObjectUtils.isEmpty(netProfitAfterBaseFee) && !ObjectUtils.isEmpty(o.netProfitAfterBaseFee)) ? netProfitAfterBaseFee.compareTo(o.netProfitAfterBaseFee) : profitBeforeGasInEther.compareTo(o.profitBeforeGasInEther);
     }
