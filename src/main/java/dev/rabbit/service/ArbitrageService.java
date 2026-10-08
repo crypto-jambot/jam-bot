@@ -7,6 +7,7 @@ import dev.rabbit.exception.ZeroAmountException;
 import dev.rabbit.pojo.Path;
 import dev.rabbit.pool.Pool;
 import dev.rabbit.pool.State;
+import dev.rabbit.pool.UniswapV3Pool;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import static dev.rabbit.utils.Constants.WETH_ADDRESS;
 import static java.math.BigInteger.ONE;
 
 @Service
@@ -64,9 +67,12 @@ public class ArbitrageService {
 
 
     public List<Path> analyze(List<Path> paths) {
+        paths = paths.stream().filter(path -> path.getTrades().stream().anyMatch(trade -> trade.getPool() instanceof UniswapV3Pool)).collect(Collectors.toList());
+        paths = paths.stream().filter(path -> path.getTrades().getFirst().getStart().getAddress().equalsIgnoreCase(WETH_ADDRESS)).toList();
         getData(paths);
         System.gc();
         List<Path> pathsWithValueExtractable = paths.parallelStream().filter(Path::isValueExtractable).sorted(Collections.reverseOrder()).toList();
+//        pathsWithValueExtractable = pathsWithValueExtractable.subList(0, Math.min(pathsWithValueExtractable.size(), 1000));
         if (pathsWithValueExtractable.isEmpty()) return Collections.emptyList();
 
         // Initialize State for parallel processing
@@ -110,13 +116,13 @@ public class ArbitrageService {
         for (Path path : exploitablePaths) {
             path.setBaseFeePerGas(baseFeePerGas);
             path.setMaxBaseFeeInFutureBlock(maxBaseFeeInFutureBlock);
-            if (count >= 1) break;
-            if (attempts >= 10) break;
+//            if (count >= 1) break;
+            if (attempts >= 50) break;
             try {
                 path.simulate();
                 attempts++;
-                if (path.getNetProfitAfterBaseFee().compareTo(BigInteger.ZERO) <= 0) continue;
-                count++;
+//                if (path.getNetProfitAfterBaseFee().compareTo(BigInteger.ZERO) <= 0) continue;
+//                count++;
                 System.out.println(count);
                 profitablePaths.add(path);
             }
@@ -156,7 +162,7 @@ public class ArbitrageService {
             BigDecimal profit = new BigDecimal(profitablePath.getNetProfitAfterBaseFee());
             System.out.println("Profit in ETH: " + profit.divide(BigDecimal.TEN.pow(18), MathContext.DECIMAL32));
         }
-        return profitablePaths;
+        return List.of(profitablePaths.get(0));
     }
 
     private void getData(List<Path> paths) {

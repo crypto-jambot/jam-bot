@@ -362,16 +362,18 @@ public class Path implements Comparable<Path> {
                 throw GasEstimationFailureException.of(response.getError().getMessage());
             }
             // Usually the real amount of gas used is slightly less than estimated
-            gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(95)).divide(BigInteger.valueOf(100));
+            gasUsed = response.getAmountUsed().multiply(BigInteger.valueOf(94)).divide(BigInteger.valueOf(100));
         } catch (IOException exception) {
             throw GasEstimationFailureException.of("Encountered an IO exception", exception);
         }
 
-        netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));
+//        netProfitAfterBaseFee = profitBeforeGasInEther.toBigInteger().subtract(gasUsed.multiply(baseFeePerGas));
 //        BigInteger lowerBoundPriority = ONE_GWEI;
 //        BigInteger higherBoundPriority = ONE_GWEI.multiply(BigInteger.TEN);
-        BigInteger numberOfWeiPerGasUnitFromProfit = netProfitAfterBaseFee.divide(gasUsed);
+
+        BigInteger numberOfWeiPerGasUnitFromProfit = profitBeforeGasInEther.toBigInteger().divide(gasUsed);
         BigInteger validatorSharePerGas = numberOfWeiPerGasUnitFromProfit.multiply(BigInteger.valueOf(99)).divide(BigInteger.valueOf(100));
+
 //        if (validatorSharePerGas.compareTo(lowerBoundPriority) <= 0) {
 //            maxPriorityFeePerGas = lowerBoundPriority;
 //        } else if (validatorSharePerGas.compareTo(higherBoundPriority) > 0) {
@@ -379,8 +381,10 @@ public class Path implements Comparable<Path> {
 //        } else {
 //            maxPriorityFeePerGas = validatorSharePerGas;
 //        }
-        maxPriorityFeePerGas = baseFeePerGas.add(validatorSharePerGas);
-        netProfit = netProfitAfterBaseFee.subtract(gasUsed.multiply(validatorSharePerGas));
+//        maxPriorityFeePerGas = baseFeePerGas.add(validatorSharePerGas);
+//        netProfit = netProfitAfterBaseFee.subtract(gasUsed.multiply(validatorSharePerGas));
+        maxPriorityFeePerGas = ONE_GWEI.multiply(BigInteger.valueOf(5));
+        netProfit = ZERO;
     }
 
     public void buildSignedTransaction() {
@@ -403,7 +407,7 @@ public class Path implements Comparable<Path> {
                 ZERO,
                 data,
                 maxPriorityFeePerGas,
-                maxPriorityFeePerGas
+                maxBaseFeeInFutureBlock.add(maxPriorityFeePerGas)
         );
         byte[] signedTransaction = TransactionEncoder.signMessage(transaction, SpringContext.getBean(Wallet.class).getAccount(0).getCredentials());
         this.signedTransaction = Numeric.toHexString(signedTransaction);
